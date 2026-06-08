@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CleanCrop</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- Login screen -->
+  <div id="loginScreen">
+    <div class="login-card">
+      <div class="login-logo">CleanCrop</div>
+      <div class="login-sub">Management System</div>
+      <div id="loginErr" class="login-err" style="display:none"></div>
+      <div class="field" style="margin-bottom:12px">
+        <label>Username</label>
+        <input class="input" id="loginUser" placeholder="e.g. admin" autocomplete="username"
+               onkeydown="if(event.key==='Enter')app.login()">
+      </div>
+      <div class="field" style="margin-bottom:20px">
+        <label>Password</label>
+        <input class="input" type="password" id="loginPass" placeholder="Password" autocomplete="current-password"
+               onkeydown="if(event.key==='Enter')app.login()">
+      </div>
+      <button class="btn primary block" onclick="app.login()">Sign in</button>
+      <div class="login-hint">
+        Manager: <strong>admin</strong> / cleancrop &nbsp;·&nbsp;
+        Field: <strong>worker</strong> / cleancrop
+      </div>
+    </div>
+  </div>
+
+  <!-- App shell -->
+  <div id="appShell" style="display:none">
+
+    <aside id="sidebar">
+      <div class="sb-logo">
+        <div class="sb-icon">✦</div>
+        <div>
+          <div class="sb-title">CleanCrop</div>
+          <div class="sb-tagline">Management</div>
+        </div>
+      </div>
+
+      <nav id="mnav"></nav>
+
+      <div class="sb-bottom">
+        <div id="roleSeg" class="seg sb-seg no-print">
+          <button data-role="manager">Manager</button>
+          <button data-role="field">Field</button>
+        </div>
+        <div id="userPick" style="display:none;margin-top:10px"></div>
+        <div id="sbUser"></div>
+        <button class="btn danger sm block sb-logout" onclick="app.logout()">Sign out</button>
+      </div>
+    </aside>
+
+    <div id="appMain">
+      <div id="root"></div>
+    </div>
+
+  </div>
+
+  <div id="modalRoot"></div>
+  <script src="app.js"></script>
+</body>
+</html>
