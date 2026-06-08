@@ -233,8 +233,8 @@ function monthCost(d){
 // ─── 7. RENDER ENGINE ────────────────────────────────────────────────────────
 
 function render(){
-  // show login if not authenticated
-  const auth = Store.get('auth');
+  // show login if not authenticated (session-based — clears on tab close)
+  const auth = JSON.parse(sessionStorage.getItem('cc_auth')||'null');
   if(!auth){
     el('loginScreen').style.display='flex';
     el('appShell').style.display='none';
@@ -289,7 +289,7 @@ function paintSidebar(auth){
 }
 
 // keep old name as alias so nothing else breaks
-const paintTop = () => { const auth=Store.get('auth'); if(auth) paintSidebar(auth); };
+const paintTop = () => { const auth=JSON.parse(sessionStorage.getItem('cc_auth')||'null'); if(auth) paintSidebar(auth); };
 
 function bindAll(){
   // day-btn toggles inside forms (modal)
@@ -1235,7 +1235,7 @@ const app = {
         return;
       }
       errEl.style.display='none';
-      Store.set('auth',{username:acct.username, name:acct.name, role:acct.role});
+      sessionStorage.setItem('cc_auth', JSON.stringify({username:acct.username, name:acct.name, role:acct.role}));
       S.role = acct.role;
       S.view = acct.role==='field' ? 'field' : 'dashboard';
       render();
@@ -1246,7 +1246,7 @@ const app = {
     }
   },
   logout(){
-    Store.set('auth',null);
+    sessionStorage.removeItem('cc_auth');
     render();
   },
 
