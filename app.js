@@ -1,13 +1,13 @@
 /* ============================================================
-   CleanCop — full prototype
+   CleanCrop — full prototype
    Storage: localStorage (prefix "cc_")
    ============================================================ */
 
 // ─── 1. CONFIG & HELPERS ──────────────────────────────────────────────────────
 
 const ACCOUNTS = [
-  { username: 'admin',  password: 'cleancop', role: 'manager', name: 'Admin Manager' },
-  { username: 'worker', password: 'cleancop', role: 'field',   name: 'Field Worker' },
+  { username: 'admin',  password: 'cleancrop', role: 'manager', name: 'Admin Manager' },
+  { username: 'worker', password: 'cleancrop', role: 'field',   name: 'Field Worker' },
 ];
 
 const NOW   = new Date();
