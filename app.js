@@ -265,8 +265,16 @@ function paintSidebar(auth){
   } else { up.style.display='none'; }
   // nav items (sidebar)
   const NAV_ICONS = {
-    dashboard:'🏠',calendar:'📅',jobs:'🔧',clients:'🏢',
-    sites:'📍',shifts:'🗓',employees:'👷',payroll:'💵',invoices:'🧾',report:'📊',
+    dashboard:`<svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1.5"/><rect x="9" y="1" width="6" height="6" rx="1.5"/><rect x="1" y="9" width="6" height="6" rx="1.5"/><rect x="9" y="9" width="6" height="6" rx="1.5"/></svg>`,
+    calendar:`<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2.5" width="13" height="12" rx="2"/><path d="M1.5 6.5h13M5 1.5v2M11 1.5v2" stroke-linecap="round"/><circle cx="5.5" cy="10" r="1" fill="currentColor" stroke="none"/><circle cx="8" cy="10" r="1" fill="currentColor" stroke="none"/><circle cx="10.5" cy="10" r="1" fill="currentColor" stroke="none"/></svg>`,
+    jobs:`<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2a4 4 0 0 0-4 4c0 .4.1.8.2 1.1L2.6 10.7A1.5 1.5 0 1 0 4.8 13l3.6-3.6c.3.1.7.2 1.1.2a4 4 0 1 0 .5-7.6z"/></svg>`,
+    clients:`<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="4" width="13" height="10.5" rx="1.5"/><path d="M5 4V2.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5V4" stroke-linecap="round"/><path d="M1.5 9h13M6 9v5.5M10 9v5.5" stroke-linecap="round"/></svg>`,
+    sites:`<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.5a4.5 4.5 0 0 1 4.5 4.5c0 3.5-4.5 8.5-4.5 8.5S3.5 9.5 3.5 6A4.5 4.5 0 0 1 8 1.5z" stroke-linejoin="round"/><circle cx="8" cy="6" r="1.5" fill="currentColor" stroke="none"/></svg>`,
+    shifts:`<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 4.5V8l2.5 2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    employees:`<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="5" r="3"/><path d="M2 14.5c0-3.3 2.7-6 6-6s6 2.7 6 6" stroke-linecap="round"/></svg>`,
+    payroll:`<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 4v8M6 5.5h3a1.5 1.5 0 0 1 0 3H7a1.5 1.5 0 0 0 0 3h3.5" stroke-linecap="round"/></svg>`,
+    invoices:`<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="1.5" width="11" height="13" rx="1.5"/><path d="M5 5.5h6M5 8.5h6M5 11.5h4" stroke-linecap="round"/></svg>`,
+    report:`<svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="9" width="3.5" height="6" rx="1"/><rect x="6.25" y="5.5" width="3.5" height="9.5" rx="1"/><rect x="11.5" y="2" width="3.5" height="13" rx="1"/></svg>`,
   };
   const nav=el('mnav');
   if(S.role==='manager'){
