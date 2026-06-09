@@ -6,7 +6,7 @@ async function callClaude(prompt) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model: "claude-haiku-4-5-20251001",
-        max_tokens: 350,
+        max_tokens: 600,
         messages: [{ role: "user", content: prompt }],
       }),
     });
@@ -71,7 +71,7 @@ Disclaimer: This is educational technical analysis only, not financial advice.`)
 }
 
 async function runSummaryAgent(d, bullText, bearText, riskText) {
-  return callClaude(`You are the Lead Analyst. Three analysts have debated ${d.ticker}. Synthesize their full arguments and current data into a structured verdict.
+  return callClaude(`You are the Lead Analyst delivering a final investment verdict on ${d.ticker} based on past price behavior and the debate below.
 
 --- BULL ANALYST ---
 ${bullText}
@@ -87,26 +87,34 @@ ${buildContext(d)}
 
 Produce your verdict in this exact format:
 
+PAST BEHAVIOR ANALYSIS
+[3 sentences analyzing what the historical price action reveals: has this asset trended consistently, recovered well from dips, shown high volatility, broken down under pressure? What does the 52W range and distance from SMA tell us about its behavior pattern?]
+
 DEBATE SYNTHESIS
-[2-3 sentences weighing which case is stronger and why, referencing specific points from each analyst]
+[2 sentences on which analyst made the stronger case and the single most important factor right now]
 
 SHORT-TERM OUTLOOK (1–2 weeks)
-Scenario A (Bull): [specific price target or % move if momentum continues]
-Scenario B (Bear): [specific price target or % move if it breaks down]
-Most likely: [which scenario and why]
+Bull case: [price target or % move]
+Bear case: [price target or % move]
+Most likely: [which and why in one sentence]
 
 MEDIUM-TERM OUTLOOK (1–3 months)
-[Key trend and what would need to happen for a reversal]
+[One sentence on trend direction and what would reverse it]
 
 KEY LEVELS TO WATCH
-Support: [price level]
-Resistance: [price level]
-Breakout trigger: [what event/level changes the picture]
+Support: $[level] | Resistance: $[level]
+Breakout trigger: [specific condition]
 
 PROBABILITY ASSESSMENT
 Bullish: [X]%  |  Neutral: [Y]%  |  Bearish: [Z]%
 
-OVERALL VERDICT: [BULLISH / NEUTRAL / BEARISH] — Confidence: [LOW / MEDIUM / HIGH]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FINAL CONCLUSION: [INVEST / WATCH / AVOID]
+Confidence: [LOW / MEDIUM / HIGH]
+Reasoning: [1-2 sentences — based purely on past behavior patterns and current technicals, state clearly why this is the conclusion]
+Entry condition: [what price level or signal would make this a better entry point]
+Exit / Stop-loss: [at what level the thesis is broken]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Disclaimer: Educational technical analysis only, not financial advice.`);
+Note: This is technical analysis based on historical price data only. It does not account for news, earnings, or macro events. Use as one input among many.`);
 }

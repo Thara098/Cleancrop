@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Trading Agent</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div class="header-left">
+        <h1>AI Trading Agent</h1>
+        <span class="mode-badge">PAPER TRADING</span>
+      </div>
+      <div class="header-right">
+        <div class="agent-controls">
+          <span id="scheduler-status" class="scheduler-status stopped">● Stopped</span>
+          <button id="start-btn"   class="btn-primary">Start Agent</button>
+          <button id="stop-btn"    class="btn-ghost hidden">Stop Agent</button>
+          <button id="run-now-btn" class="btn-ghost">Run Now</button>
+          <button id="refresh-btn" class="btn-ghost">Refresh</button>
+        </div>
+      </div>
+    </header>
+
+    <div id="error-banner" class="error-banner hidden"></div>
+
+    <!-- Portfolio Stats -->
+    <div class="stats-row">
+      <div class="stat-card">
+        <span class="stat-label">Portfolio Value</span>
+        <span id="portfolio-value" class="stat-value">—</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Cash</span>
+        <span id="cash" class="stat-value">—</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Today's P&L</span>
+        <span id="today-pl" class="stat-value">—</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Open Positions</span>
+        <span id="position-count" class="stat-value">—</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Total P&L</span>
+        <span id="total-pl" class="stat-value">—</span>
+      </div>
+    </div>
+
+    <div class="main-grid">
+      <div class="left-col">
+
+        <!-- Equity Chart -->
+        <div class="card">
+          <h3>Portfolio Equity Curve</h3>
+          <div class="chart-wrap">
+            <canvas id="equity-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- Open Positions -->
+        <div class="card">
+          <h3>Open Positions</h3>
+          <div id="positions-table"><p class="empty-msg">No open positions</p></div>
+        </div>
+
+        <!-- Recent Orders -->
+        <div class="card">
+          <h3>Recent Orders</h3>
+          <div id="orders-table"><p class="empty-msg">No orders yet</p></div>
+        </div>
+      </div>
+
+      <div class="right-col">
+
+        <!-- Watchlist info -->
+        <div class="card">
+          <h3>Watchlist</h3>
+          <p class="watchlist-note"><span class="type-badge crypto">CRYPTO</span> BTC/USDT · ETH/USDT · SOL/USDT — 24/7</p>
+          <p class="watchlist-note" style="margin-top:8px"><span class="type-badge stock">STOCK</span> AAPL · TSLA · NVDA · MSFT — Market hours only</p>
+          <p class="watchlist-note" style="margin-top:8px;color:#475569">Edit in <code>config.js → CRYPTO_WATCHLIST / STOCK_WATCHLIST</code></p>
+        </div>
+
+        <!-- Agent Trade Log -->
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+            <h3 style="margin:0">Agent Decisions</h3>
+            <span id="log-count" class="log-count">0 decisions</span>
+          </div>
+          <div id="trade-log"><p class="empty-msg">Click "Start Agent" or "Run Now" to begin.</p></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
