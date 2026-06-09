@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stock Trend Analyzer</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>Stock Trend Analyzer</h1>
+      <p class="subtitle">Historical trends + AI-powered insights</p>
+    </header>
+
+    <div class="search-bar">
+      <select id="asset-type">
+        <option value="stock">Stocks</option>
+        <option value="crypto">Crypto</option>
+        <option value="etf">ETFs</option>
+      </select>
+      <input type="text" id="ticker-input" placeholder="Enter ticker (e.g. AAPL)" />
+      <select id="range-select">
+        <option value="30">30 Days</option>
+        <option value="90" selected>90 Days</option>
+        <option value="100">100 Days</option>
+      </select>
+      <button id="analyze-btn">Analyze</button>
+    </div>
+
+    <div id="quick-picks" class="quick-picks">
+      <span class="qp-label">Popular:</span>
+      <div id="qp-buttons" class="qp-buttons"></div>
+    </div>
+
+    <div id="error-msg" class="error hidden"></div>
+
+    <div id="main-content" class="hidden">
+      <div class="stock-header">
+        <div>
+          <h2 id="stock-name"></h2>
+          <span id="stock-ticker-label" class="ticker-label"></span>
+        </div>
+        <div class="price-block">
+          <span id="current-price" class="price"></span>
+          <span id="price-change" class="change"></span>
+        </div>
+      </div>
+
+      <div class="chart-container">
+        <canvas id="price-chart"></canvas>
+      </div>
+
+      <div class="indicators">
+        <div class="indicator-card">
+          <span class="label">SMA 20</span>
+          <span id="sma20" class="value"></span>
+        </div>
+        <div class="indicator-card">
+          <span class="label">SMA 50</span>
+          <span id="sma50" class="value"></span>
+        </div>
+        <div class="indicator-card">
+          <span class="label">RSI (14)</span>
+          <span id="rsi" class="value"></span>
+        </div>
+        <div class="indicator-card">
+          <span class="label">52W High</span>
+          <span id="high52" class="value"></span>
+        </div>
+        <div class="indicator-card">
+          <span class="label">52W Low</span>
+          <span id="low52" class="value"></span>
+        </div>
+      </div>
+
+      <div class="agents-section">
+        <div class="agents-header">
+          <h3>Multi-Agent Analysis</h3>
+          <button id="run-agents-btn">Run Agents</button>
+        </div>
+
+        <div id="agents-loading" class="agents-loading hidden">
+          <div class="agent-status" id="status-bull">🟡 Bull Agent — thinking...</div>
+          <div class="agent-status" id="status-bear">🟡 Bear Agent — thinking...</div>
+          <div class="agent-status" id="status-risk">🟡 Risk Agent — thinking...</div>
+          <div class="agent-status" id="status-summary">⏳ Summary Agent — waiting...</div>
+        </div>
+
+        <div id="agents-results" class="hidden">
+          <div class="agent-card bull">
+            <div class="agent-card-header">
+              <span class="agent-icon">📈</span>
+              <span class="agent-name">Bull Analyst</span>
+              <span class="agent-tag bull-tag">Bullish Case</span>
+            </div>
+            <div id="bull-result" class="agent-body"></div>
+          </div>
+
+          <div class="agent-card bear">
+            <div class="agent-card-header">
+              <span class="agent-icon">📉</span>
+              <span class="agent-name">Bear Analyst</span>
+              <span class="agent-tag bear-tag">Bearish Case</span>
+            </div>
+            <div id="bear-result" class="agent-body"></div>
+          </div>
+
+          <div class="agent-card risk">
+            <div class="agent-card-header">
+              <span class="agent-icon">⚠️</span>
+              <span class="agent-name">Risk Analyst</span>
+              <span class="agent-tag risk-tag">Risk Profile</span>
+            </div>
+            <div id="risk-result" class="agent-body"></div>
+          </div>
+
+          <div class="agent-card summary">
+            <div class="agent-card-header">
+              <span class="agent-icon">🧠</span>
+              <span class="agent-name">Lead Analyst — Full Verdict</span>
+              <span class="agent-tag summary-tag">Verdict + Predictions</span>
+            </div>
+            <div id="summary-result" class="agent-body"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="indicators.js"></script>
+  <script src="chart.js"></script>
+  <script src="agent.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
