@@ -3,9 +3,12 @@ const { getIndicators, getFearAndGreed } = require("./taapi");
 const { getStockIndicators } = require("./twelvedata");
 const { getDecision }   = require("./agent");
 const { getHistoricalContext } = require("./history");
+const tg          = require("./telegram");
 const alpaca      = require("./alpaca");
 const posTracker  = require("./positions");
 const config      = require("./config");
+
+let lastSummaryDate = null; // track daily summary
 
 let tradeLog  = [];
 let isRunning = false;
@@ -20,6 +23,7 @@ function updateCircuitBreaker(equity) {
     peakEquity = equity;
     if (circuitBreakerActive) {
       console.log(`[CircuitBreaker] Recovered — equity $${equity.toFixed(0)} above previous peak. Trading resumed.`);
+      tg.notifyCircuitBreaker(false, 0, equity);
       circuitBreakerActive = false;
     }
   }
@@ -27,6 +31,7 @@ function updateCircuitBreaker(equity) {
   if (drawdown >= 0.05 && !circuitBreakerActive) {
     circuitBreakerActive = true;
     console.log(`[CircuitBreaker] ACTIVE — drawdown ${(drawdown*100).toFixed(1)}% from peak $${peakEquity.toFixed(0)}. No new buys until recovery.`);
+    tg.notifyCircuitBreaker(true, drawdown * 100, equity);
   }
   return circuitBreakerActive;
 }
@@ -60,6 +65,7 @@ async function checkStopLossAndTakeProfit(positions) {
       console.log(`[${position.symbol}] ${exitReason.toUpperCase()} at $${currentPrice} (${pnlPct.toFixed(2)}%)`);
       try {
         const order = await alpaca.closePosition(position.symbol);
+        tg.notifyStopLossTakeProfit(position.symbol, exitReason, currentPrice, pnlPct);
         posTracker.clearEntry(position.symbol);
         tradeLog.unshift({
           symbol:    position.symbol,
@@ -151,16 +157,19 @@ async function analyzeSymbol(symbol, type, positions, portfolioValue, availableC
       if (decision.stop_loss || decision.take_profit) {
         posTracker.recordEntry(alpacaSymbol, indicators.price, decision.stop_loss, decision.take_profit, sizeDollars);
       }
-      log.entryOpened = true; // signal to caller to increment live count
+      tg.notifyTradeOpened(symbol, isBuy ? "BUY" : "SHORT", sizeDollars, indicators.price, decision.stop_loss, decision.take_profit);
+      log.entryOpened = true;
       console.log(`[${symbol}] ${isBuy ? "BUY" : "SHORT"} $${sizeDollars.toFixed(0)} | SL:$${decision.stop_loss?.toFixed(2)} | TP:$${decision.take_profit?.toFixed(2)}${weekendSizeFactor() < 1 ? " [weekend -40%]" : ""}`);
 
     } else if ((isSell || isCovr) && position) {
-      const order = await alpaca.closePosition(alpacaSymbol);
+      const pnlPct = parseFloat(position.unrealized_plpc) * 100;
+      const order  = await alpaca.closePosition(alpacaSymbol);
       log.order        = order;
       log.status       = "executed";
       log.exitExecuted = true;
       log.exitValue    = Math.abs(parseFloat(position.market_value) || 0);
       posTracker.clearEntry(alpacaSymbol);
+      tg.notifyTradeClosed(symbol, isCovr ? "COVER" : "SELL", pnlPct, parseFloat(position.current_price), decision.signals_summary?.slice(0, 60));
       console.log(`[${symbol}] ${isCovr ? "COVERED short" : "SOLD long"} — position closed`);
 
     } else {
@@ -193,9 +202,16 @@ async function runCycle() {
     // Update circuit breaker state
     updateCircuitBreaker(portfolioValue);
 
-    // Fetch Fear & Greed once per cycle — applies to all symbols
     const fearAndGreed = await getFearAndGreed();
     console.log(`[Scheduler] F&G: ${fearAndGreed.value}/100 (${fearAndGreed.classification}) | Portfolio: $${portfolioValue.toFixed(0)} | Circuit: ${circuitBreakerActive ? "ACTIVE" : "OK"}`);
+
+    // Send daily summary once per day (first cycle of each new day)
+    const todayDate = new Date().toDateString();
+    if (lastSummaryDate !== todayDate) {
+      lastSummaryDate = todayDate;
+      const todayTrades = tradeLog.filter(l => l.timestamp?.startsWith(new Date().toISOString().slice(0,10)) && l.status === "executed").length;
+      tg.notifyDailySummary(portfolioValue, availableCash, positions, todayTrades);
+    }
 
     // Check stop loss / take profit on all open positions first
     if (positions.length > 0) {

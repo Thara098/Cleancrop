@@ -5,9 +5,12 @@ const { getDecision }          = require("./agent");
 const { getHistoricalContext } = require("./history");
 const { getPatterns }          = require("./patterns");
 const journal                  = require("./journal");
+const tg          = require("./telegram");
 const alpaca      = require("./alpaca");
 const posTracker  = require("./positions");
 const config      = require("./config");
+
+let lastSummaryDate = null;
 
 // Correlation guard — prevents buying multiple highly-correlated assets in same cycle
 const CORRELATED_GROUPS = [
@@ -63,6 +66,7 @@ function updateCircuitBreaker(equity) {
     peakEquity = equity;
     if (circuitBreakerActive) {
       console.log(`[CircuitBreaker] Recovered — equity $${equity.toFixed(0)} above previous peak. Trading resumed.`);
+      tg.notifyCircuitBreaker(false, 0, equity);
       circuitBreakerActive = false;
     }
   }
@@ -70,6 +74,7 @@ function updateCircuitBreaker(equity) {
   if (drawdown >= 0.05 && !circuitBreakerActive) {
     circuitBreakerActive = true;
     console.log(`[CircuitBreaker] ACTIVE — drawdown ${(drawdown*100).toFixed(1)}% from peak $${peakEquity.toFixed(0)}. No new buys until recovery.`);
+    tg.notifyCircuitBreaker(true, drawdown * 100, equity);
   }
   return circuitBreakerActive;
 }
@@ -103,6 +108,7 @@ async function checkStopLossAndTakeProfit(positions) {
       console.log(`[${position.symbol}] ${exitReason.toUpperCase()} at $${currentPrice} (${pnlPct.toFixed(2)}%)`);
       try {
         const order = await alpaca.closePosition(position.symbol);
+        tg.notifyStopLossTakeProfit(position.symbol, exitReason, currentPrice, pnlPct);
         posTracker.clearEntry(position.symbol);
         tradeLog.unshift({
           symbol:    position.symbol,
@@ -216,6 +222,7 @@ async function analyzeSymbol(symbol, type, positions, portfolioValue, availableC
         dollars: sizeDollars, indicators, patterns,
       });
 
+      tg.notifyTradeOpened(symbol, isBuy ? "BUY" : "SHORT", sizeDollars, indicators.price, decision.stop_loss, decision.take_profit);
       log.entryOpened = true;
       if (isBuy) boughtThisCycle.add(alpacaSymbol);
       console.log(`[${symbol}] ${isBuy ? "BUY" : "SHORT"} $${sizeDollars.toFixed(0)} | SL:$${decision.stop_loss?.toFixed(2)} | TP:$${decision.take_profit?.toFixed(2)}${weekendSizeFactor() < 1 ? " [weekend -40%]" : ""} | ML:${mlBonus >= 0 ? "+" : ""}${mlBonus}`);
@@ -228,8 +235,8 @@ async function analyzeSymbol(symbol, type, positions, portfolioValue, availableC
       log.status       = "executed";
       log.exitExecuted = true;
       log.exitValue    = Math.abs(parseFloat(position.market_value) || 0);
-      // Record exit so journal can update win/loss stats and retrain signal weights
       journal.recordExit({ alpacaSymbol, exitPrice: currentPrice, pnlPct });
+      tg.notifyTradeClosed(symbol, isCovr ? "COVER" : "SELL", pnlPct, currentPrice, decision.signals_summary?.slice(0, 60));
       posTracker.clearEntry(alpacaSymbol);
       console.log(`[${symbol}] ${isCovr ? "COVERED" : "SOLD"} | P&L: ${pnlPct.toFixed(2)}%`);
 
@@ -278,6 +285,14 @@ async function runCycle() {
 
     const mlStats = journal.getAllStats();
     console.log(`[Agent2] F&G:${fearAndGreed.value}/100 | Portfolio:$${portfolioValue.toFixed(0)} | Trades recorded:${mlStats.totalRecorded} | Circuit:${circuitBreakerActive ? "ACTIVE" : "OK"}`);
+
+    // Daily summary once per day
+    const todayDate = new Date().toDateString();
+    if (lastSummaryDate !== todayDate) {
+      lastSummaryDate = todayDate;
+      const todayTrades = tradeLog.filter(l => l.timestamp?.startsWith(new Date().toISOString().slice(0,10)) && l.status === "executed").length;
+      tg.notifyDailySummary(portfolioValue, availableCash, positions, todayTrades);
+    }
 
     // Crypto — runs 24/7
     for (const symbol of config.CRYPTO_WATCHLIST) {
