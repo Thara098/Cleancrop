@@ -201,7 +201,8 @@ async function analyzeSymbol(symbol, type, positions, portfolioValue, availableC
       }
 
       const side  = isBuy ? "buy" : "sell";
-      const order = await alpaca.placeNotionalOrder(alpacaSymbol, sizeDollars, side);
+      // Pass current price for BTC so it can use qty-based order (notional doesn't fill on paper)
+      const order = await alpaca.placeNotionalOrder(alpacaSymbol, sizeDollars, side, indicators.price);
       log.order  = order;
       log.status = "executed";
 

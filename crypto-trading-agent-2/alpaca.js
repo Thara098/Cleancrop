@@ -58,8 +58,17 @@ function placeOrder(symbol, qty, side) {
 
 // Notional order — buy/sell by dollar amount
 // Stocks require time_in_force "day" for notional orders; crypto uses "gtc"
-function placeNotionalOrder(symbol, dollars, side) {
+// BTC notional orders don't fill on Alpaca paper trading — use qty instead
+function placeNotionalOrder(symbol, dollars, side, currentPrice = null) {
   const isCrypto = symbol.endsWith("USD") && !["MSFT", "TSLA", "NVDA", "AAPL"].includes(symbol);
+  if (symbol === "BTCUSD" && currentPrice) {
+    const qty = (dollars / currentPrice).toFixed(6);
+    console.log(`[Alpaca] BTC qty order: ${qty} BTC @ ~$${currentPrice.toFixed(0)} = $${dollars.toFixed(0)}`);
+    return alpacaPost("/v2/orders", {
+      symbol, qty, side,
+      type: "market", time_in_force: "gtc",
+    });
+  }
   return alpacaPost("/v2/orders", {
     symbol, notional: dollars.toFixed(2), side,
     type: "market", time_in_force: isCrypto ? "gtc" : "day",
