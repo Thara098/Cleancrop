@@ -114,13 +114,14 @@ function _updateSignalAccuracy(j, trade) {
 
 // ── ML scoring ────────────────────────────────────────────────────────────────
 
-// Returns +1 (historically reliable setup), 0 (neutral/not enough data), or -1 (historically poor)
-// Minimum 5 recorded outcomes before influencing anything
+// Returns +1 (historically reliable), 0 (neutral/not enough data), or -1 (historically poor)
+// Requires 15 samples before applying any penalty (prevents over-learning from one bad session)
+// Max penalty is -1 total (not -2) to avoid completely blocking all trades
 function getMLBonus(indicators, patterns) {
   const j = load();
   const sa = j.signalAccuracy || {};
   let score = 0;
-  const MIN_SAMPLES = 5;
+  const MIN_SAMPLES = 15; // raised from 5 — needs more evidence before penalising
 
   function check(key, bullish) {
     const rec = sa[key];
@@ -130,11 +131,10 @@ function getMLBonus(indicators, patterns) {
     const wr = rec.wins / total;
     if (bullish) {
       if (wr >= 0.65) score++;
-      else if (wr <= 0.35) score--;
+      else if (wr <= 0.30) score--; // stricter threshold for penalty (was 0.35)
     } else {
-      // For bearish signals, high win rate on BEAR signal = bad for BULL
       if (wr >= 0.65) score--;
-      else if (wr <= 0.35) score++;
+      else if (wr <= 0.30) score++;
     }
   }
 
@@ -150,7 +150,7 @@ function getMLBonus(indicators, patterns) {
   check("regime_strong",       true);
   check("adx_strong",          true);
 
-  return Math.max(-2, Math.min(2, score)); // clamp to -2..+2
+  return Math.max(-1, Math.min(1, score)); // clamp to -1..+1 max (never block everything)
 }
 
 // ── Stats accessors ───────────────────────────────────────────────────────────
