@@ -7,11 +7,13 @@ function fmt(n)  { return n != null ? parseFloat(n).toFixed(4) : "N/A"; }
 function fmtP(n) { return n != null ? parseFloat(n).toFixed(2) + "%" : "N/A"; }
 
 // ATR-based position sizing: risk 1% of portfolio per trade, stop at 1.5x ATR
+// Hard cap: 8% of portfolio OR $8,000 max per trade (prevents BTC ATR blowing up sizes)
 function calcPositionSize(portfolioValue, price, atr, availableCash) {
-  if (!atr || !price) return Math.min(portfolioValue * 0.10, availableCash * 0.95);
+  const hardCap = Math.min(portfolioValue * 0.08, 8000);
+  if (!atr || !price) return Math.min(portfolioValue * 0.07, hardCap, availableCash * 0.95);
   const riskDollars = portfolioValue * 0.01;
   const slFraction  = (atr * 1.5) / price;
-  return Math.min(riskDollars / slFraction, portfolioValue * 0.15, availableCash * 0.95);
+  return Math.min(riskDollars / slFraction, hardCap, availableCash * 0.95);
 }
 
 // patterns + mlBonus + winRate are Agent 2 additions (all optional, gracefully ignored if null)
@@ -50,10 +52,8 @@ async function getDecision(
 
   const tooManyPositions = openPositionCount >= maxPositions;
   const atrPos     = calcPositionSize(portfolioValue, price, atr, availableCash);
-  // ML bonus can increase/decrease position size by up to 20%
-  const mlSizeMult = 1 + (mlBonus * 0.10);
-  const highSize   = Math.round(atrPos * mlSizeMult);
-  const mediumSize = Math.round(atrPos * 0.75 * mlSizeMult);
+  const highSize   = Math.round(atrPos);
+  const mediumSize = Math.round(atrPos * 0.75);
 
   const fgContext = fg.value <= 24 ? "EXTREME FEAR — historically best buying opportunity. Strong contrarian BUY signal."
     : fg.value <= 44 ? "FEAR — lean toward buying dips on strong setups."
@@ -197,7 +197,7 @@ LIVE INDICATORS (4H timeframe):
 - EMA200:     $${fmt(ema200)} → price ${ema200Bias}
 - Supertrend: ${stDir}
 - ADX:        ${fmt(adx)} — ${adx != null ? (adx > 30 ? "strong trend" : adx > 20 ? "weak trend" : "ranging/no trend") : "N/A"}
-- ATR:        ${fmt(atr)} (ATR position: $${highSize} | ML-adjusted by ${mlBonus >= 0 ? "+" : ""}${(mlBonus * 10).toFixed(0)}%)
+- ATR:        ${fmt(atr)} (ATR-sized position: $${highSize} | capped at $8,000 max)
 
 MARKET REGIME: ${regimeContext}
 FEAR & GREED:  ${fg.value}/100 — ${fg.classification}. ${fgContext}

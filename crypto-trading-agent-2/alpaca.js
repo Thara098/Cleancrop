@@ -43,7 +43,10 @@ async function isMarketOpen() {
 const getAccount    = ()          => alpacaGet("/v2/account");
 const getPositions  = ()          => alpacaGet("/v2/positions");
 const getOrders     = ()          => alpacaGet("/v2/orders?status=all&limit=50");
+const getOpenOrders = ()          => alpacaGet("/v2/orders?status=open&limit=50");
 const closePosition = (symbol)    => alpacaDelete(`/v2/positions/${symbol}`);
+const cancelOrder   = (orderId)   => alpacaDelete(`/v2/orders/${orderId}`);
+const cancelAllOrders = ()        => alpacaDelete("/v2/orders");
 
 // Place market order
 function placeOrder(symbol, qty, side) {
@@ -84,4 +87,4 @@ async function getPortfolioHistory() {
   return alpacaGet("/v2/account/portfolio/history?period=1A&timeframe=1D");
 }
 
-module.exports = { getAccount, getPositions, getOrders, getLatestPrice, getBars, placeOrder, placeNotionalOrder, closePosition, getPortfolioHistory, isMarketOpen };
+module.exports = { getAccount, getPositions, getOrders, getOpenOrders, getLatestPrice, getBars, placeOrder, placeNotionalOrder, closePosition, cancelOrder, cancelAllOrders, getPortfolioHistory, isMarketOpen };

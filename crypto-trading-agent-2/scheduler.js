@@ -31,6 +31,29 @@ let tradeLog  = [];
 let isRunning = false;
 let cronJob   = null;
 
+// Cancel any orders still stuck as "new" after one full cycle (5 mins)
+// BTC paper orders sometimes never fill — this prevents cash getting frozen
+async function cancelStaleOrders() {
+  try {
+    const orders = await alpaca.getOpenOrders();
+    if (!orders.length) return;
+    const staleMs = 6 * 60 * 1000; // 6 minutes
+    const now = Date.now();
+    let cancelled = 0;
+    for (const order of orders) {
+      const age = now - new Date(order.created_at).getTime();
+      if (age > staleMs) {
+        await alpaca.cancelOrder(order.id);
+        cancelled++;
+        console.log(`[Agent2] Cancelled stale order: ${order.symbol} ${order.side} $${order.notional} (${Math.round(age/60000)}m old)`);
+      }
+    }
+    if (cancelled > 0) console.log(`[Agent2] Cancelled ${cancelled} stale order(s) — cash freed up`);
+  } catch (e) {
+    console.warn("[Agent2] Stale order cleanup error:", e.message);
+  }
+}
+
 // Circuit breaker — halts new buys if portfolio drops 5% from peak
 let peakEquity           = 0;
 let circuitBreakerActive = false;
@@ -225,9 +248,12 @@ async function analyzeSymbol(symbol, type, positions, portfolioValue, availableC
 async function runCycle() {
   if (isRunning) return;
   isRunning = true;
-  console.log(`\n[Scheduler] ── Cycle ${new Date().toLocaleTimeString()} ──`);
+  console.log(`\n[Agent2] ── Cycle ${new Date().toLocaleTimeString()} ──`);
 
   try {
+    // Clean up any orders stuck as "new" before doing anything else
+    await cancelStaleOrders();
+
     const [positions, account] = await Promise.all([
       alpaca.getPositions(),
       alpaca.getAccount(),
@@ -236,13 +262,10 @@ async function runCycle() {
     const availableCash  = parseFloat(account.cash);
     const marketOpen     = await alpaca.isMarketOpen();
 
-    // Update circuit breaker state
     updateCircuitBreaker(portfolioValue);
 
-    // Fetch Fear & Greed once per cycle — applies to all symbols
     const fearAndGreed = await getFearAndGreed();
 
-    // Check stop loss / take profit on all open positions first
     if (positions.length > 0) {
       await checkStopLossAndTakeProfit(positions);
     }
