@@ -8,6 +8,7 @@ const COINGECKO_IDS = {
   "SOL/USDT":  "solana",
   "XRP/USDT":  "ripple",
   "DOGE/USDT": "dogecoin",
+  "AVAX/USDT": "avalanche-2",
 };
 
 const cache = {};
