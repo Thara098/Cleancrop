@@ -1,11 +1,31 @@
 const cron        = require("node-cron");
 const { getIndicators, getFearAndGreed } = require("./taapi");
-const { getStockIndicators } = require("./twelvedata");
-const { getDecision }   = require("./agent");
+const { getStockIndicators }   = require("./twelvedata");
+const { getDecision }          = require("./agent");
 const { getHistoricalContext } = require("./history");
+const { getPatterns }          = require("./patterns");
+const journal                  = require("./journal");
 const alpaca      = require("./alpaca");
 const posTracker  = require("./positions");
 const config      = require("./config");
+
+// Correlation guard — prevents buying multiple highly-correlated assets in same cycle
+const CORRELATED_GROUPS = [
+  ["BTCUSD", "ETHUSD", "SOLUSD"],
+  ["XRPUSD", "DOGEUSD"],
+];
+
+function isCorrelationBlocked(alpacaSymbol, boughtThisCycle) {
+  for (const group of CORRELATED_GROUPS) {
+    if (!group.includes(alpacaSymbol)) continue;
+    const already = group.filter(s => boughtThisCycle.has(s));
+    if (already.length >= 1) {
+      console.log(`[Correlation] ${alpacaSymbol} blocked — already bought correlated ${already[0]} this cycle`);
+      return true;
+    }
+  }
+  return false;
+}
 
 let tradeLog  = [];
 let isRunning = false;
@@ -87,18 +107,22 @@ async function checkStopLossAndTakeProfit(positions) {
   }
 }
 
-async function analyzeSymbol(symbol, type, positions, portfolioValue, availableCash, fearAndGreed, livePositionCount) {
+async function analyzeSymbol(symbol, type, positions, portfolioValue, availableCash, fearAndGreed, livePositionCount, boughtThisCycle) {
   const log = { symbol, type, timestamp: new Date().toISOString() };
 
   try {
     const indicatorFn = type === "stock" ? getStockIndicators : (s) => getIndicators(s, type);
-    const [indicators, history] = await Promise.all([
+
+    // Fetch indicators + history + patterns in parallel (patterns only for crypto)
+    const [indicators, history, patterns] = await Promise.all([
       indicatorFn(symbol),
       getHistoricalContext(symbol),
+      type === "crypto" ? getPatterns(symbol) : Promise.resolve(null),
     ]);
     if (!indicators) throw new Error("Failed to fetch indicators");
     log.indicators = indicators;
     log.history    = history;
+    log.patterns   = patterns;
 
     const alpacaSymbol = type === "crypto"
       ? (config.CRYPTO_ALPACA[symbol] || symbol.replace("/", ""))
@@ -106,15 +130,26 @@ async function analyzeSymbol(symbol, type, positions, portfolioValue, availableC
 
     const position  = positions.find(p => p.symbol === alpacaSymbol) || null;
     const entryData = posTracker.getEntry(alpacaSymbol);
-    const MAX_TOTAL_POSITIONS = 5; // hard cap across ALL assets combined
-    const decision  = await getDecision(
+
+    // ML bonus from journal — adjusts position size and scoring
+    const mlBonus = journal.getMLBonus(indicators, patterns);
+    const winRate  = journal.getWinRate(alpacaSymbol);
+
+    const MAX_TOTAL_POSITIONS = 5;
+    const decision = await getDecision(
       indicators, position, portfolioValue, entryData,
-      availableCash, livePositionCount, MAX_TOTAL_POSITIONS, fearAndGreed, history
+      availableCash, livePositionCount, MAX_TOTAL_POSITIONS,
+      fearAndGreed, history,
+      patterns, mlBonus, winRate
     );
     log.decision = decision;
+    log.mlBonus  = mlBonus;
 
-    const fgLabel = `F&G:${fearAndGreed?.value ?? "?"}`;
-    console.log(`[${symbol}] ${indicators.regime} | ${fgLabel} | Bull:${decision.bullish_score} Bear:${decision.bearish_score} → ${decision.action} (${decision.confidence})`);
+    const fgLabel  = `F&G:${fearAndGreed?.value ?? "?"}`;
+    const patLabel = patterns
+      ? `DIV:${patterns.rsiBullishDiv ? "B+" : patterns.rsiBearishDiv ? "B-" : "─"} ${patterns.macdMomentum?.replace("_", "")?.slice(0, 6) ?? "?"}`
+      : "";
+    console.log(`[${symbol}] ${indicators.regime} | ${fgLabel} | ${patLabel} | ML:${mlBonus >= 0 ? "+" : ""}${mlBonus} | Bull:${decision.bullish_score} Bear:${decision.bearish_score} → ${decision.action} (${decision.confidence})`);
 
     const rawDollars  = decision.dollars || (portfolioValue * 0.10);
     const sizeDollars = Math.min(rawDollars * weekendSizeFactor(), availableCash * 0.98);
@@ -125,25 +160,24 @@ async function analyzeSymbol(symbol, type, positions, portfolioValue, availableC
 
     if ((isBuy || isShrt) && decision.confidence !== "LOW") {
       if (circuitBreakerActive) {
-        log.status = "skipped";
-        log.reason = "Circuit breaker active — portfolio down 5%+ from peak";
-        console.log(`[${symbol}] Circuit breaker — no new entries`);
+        log.status = "skipped"; log.reason = "Circuit breaker active";
         return log;
       }
       if (availableCash <= 0) {
-        log.status = "skipped";
-        log.reason = `Cash is negative ($${availableCash.toFixed(0)}) — no buying until account recovers`;
-        console.log(`[${symbol}] Negative cash — skipping all buys`);
+        log.status = "skipped"; log.reason = `Cash is $${availableCash.toFixed(0)}`;
         return log;
       }
       if (availableCash < 500) {
-        log.status = "skipped";
-        log.reason = `Insufficient cash — only $${availableCash.toFixed(0)} available`;
-        console.log(`[${symbol}] Not enough cash ($${availableCash.toFixed(0)})`);
+        log.status = "skipped"; log.reason = `Insufficient cash $${availableCash.toFixed(0)}`;
+        return log;
+      }
+      // Correlation guard — only applies to crypto buys
+      if (type === "crypto" && isBuy && isCorrelationBlocked(alpacaSymbol, boughtThisCycle)) {
+        log.status = "skipped"; log.reason = "Correlation guard — already bought correlated asset this cycle";
         return log;
       }
 
-      const side  = isBuy ? "buy" : "sell"; // SHORT = sell side on Alpaca
+      const side  = isBuy ? "buy" : "sell";
       const order = await alpaca.placeNotionalOrder(alpacaSymbol, sizeDollars, side);
       log.order  = order;
       log.status = "executed";
@@ -151,17 +185,29 @@ async function analyzeSymbol(symbol, type, positions, portfolioValue, availableC
       if (decision.stop_loss || decision.take_profit) {
         posTracker.recordEntry(alpacaSymbol, indicators.price, decision.stop_loss, decision.take_profit, sizeDollars);
       }
-      log.entryOpened = true; // signal to caller to increment live count
-      console.log(`[${symbol}] ${isBuy ? "BUY" : "SHORT"} $${sizeDollars.toFixed(0)} | SL:$${decision.stop_loss?.toFixed(2)} | TP:$${decision.take_profit?.toFixed(2)}${weekendSizeFactor() < 1 ? " [weekend -40%]" : ""}`);
+
+      // Record trade in journal so ML can learn from outcome
+      journal.recordEntry({
+        symbol, alpacaSymbol, action: isBuy ? "BUY" : "SHORT",
+        dollars: sizeDollars, indicators, patterns,
+      });
+
+      log.entryOpened = true;
+      if (isBuy) boughtThisCycle.add(alpacaSymbol);
+      console.log(`[${symbol}] ${isBuy ? "BUY" : "SHORT"} $${sizeDollars.toFixed(0)} | SL:$${decision.stop_loss?.toFixed(2)} | TP:$${decision.take_profit?.toFixed(2)}${weekendSizeFactor() < 1 ? " [weekend -40%]" : ""} | ML:${mlBonus >= 0 ? "+" : ""}${mlBonus}`);
 
     } else if ((isSell || isCovr) && position) {
+      const currentPrice = parseFloat(position.current_price);
+      const pnlPct       = parseFloat(position.unrealized_plpc) * 100;
       const order = await alpaca.closePosition(alpacaSymbol);
       log.order        = order;
       log.status       = "executed";
       log.exitExecuted = true;
       log.exitValue    = Math.abs(parseFloat(position.market_value) || 0);
+      // Record exit so journal can update win/loss stats and retrain signal weights
+      journal.recordExit({ alpacaSymbol, exitPrice: currentPrice, pnlPct });
       posTracker.clearEntry(alpacaSymbol);
-      console.log(`[${symbol}] ${isCovr ? "COVERED short" : "SOLD long"} — position closed`);
+      console.log(`[${symbol}] ${isCovr ? "COVERED" : "SOLD"} | P&L: ${pnlPct.toFixed(2)}%`);
 
     } else {
       log.status = "held";
@@ -195,7 +241,6 @@ async function runCycle() {
 
     // Fetch Fear & Greed once per cycle — applies to all symbols
     const fearAndGreed = await getFearAndGreed();
-    console.log(`[Scheduler] F&G: ${fearAndGreed.value}/100 (${fearAndGreed.classification}) | Portfolio: $${portfolioValue.toFixed(0)} | Circuit: ${circuitBreakerActive ? "ACTIVE" : "OK"}`);
 
     // Check stop loss / take profit on all open positions first
     if (positions.length > 0) {
@@ -205,10 +250,14 @@ async function runCycle() {
     // Live trackers — update during cycle so each symbol sees accurate state
     let livePositionCount = positions.length;
     let liveCash          = availableCash;
+    const boughtThisCycle = new Set(); // correlation guard tracking
 
-    // Crypto — runs 24/7 (crypto never sleeps)
+    const mlStats = journal.getAllStats();
+    console.log(`[Agent2] F&G:${fearAndGreed.value}/100 | Portfolio:$${portfolioValue.toFixed(0)} | Trades recorded:${mlStats.totalRecorded} | Circuit:${circuitBreakerActive ? "ACTIVE" : "OK"}`);
+
+    // Crypto — runs 24/7
     for (const symbol of config.CRYPTO_WATCHLIST) {
-      const log = await analyzeSymbol(symbol, "crypto", positions, portfolioValue, liveCash, fearAndGreed, livePositionCount);
+      const log = await analyzeSymbol(symbol, "crypto", positions, portfolioValue, liveCash, fearAndGreed, livePositionCount, boughtThisCycle);
       if (log.entryOpened)  { livePositionCount++; liveCash -= (log.decision?.dollars || 0); }
       if (log.exitExecuted) { liveCash += (log.exitValue || 0); livePositionCount = Math.max(0, livePositionCount - 1); }
       tradeLog.unshift(log);
@@ -218,7 +267,7 @@ async function runCycle() {
     // Stocks — market hours only
     if (marketOpen) {
       for (const symbol of config.STOCK_WATCHLIST) {
-        const log = await analyzeSymbol(symbol, "stock", positions, portfolioValue, liveCash, fearAndGreed, livePositionCount);
+        const log = await analyzeSymbol(symbol, "stock", positions, portfolioValue, liveCash, fearAndGreed, livePositionCount, boughtThisCycle);
         if (log.entryOpened)  { livePositionCount++; liveCash -= (log.decision?.dollars || 0); }
         if (log.exitExecuted) { liveCash += (log.exitValue || 0); livePositionCount = Math.max(0, livePositionCount - 1); }
         tradeLog.unshift(log);
@@ -247,7 +296,7 @@ async function runCycle() {
 function start() {
   if (cronJob) return;
   cronJob = cron.schedule(config.SCHEDULE, runCycle);
-  console.log("[Scheduler] Started — 4H indicators, regime detection, Fear&Greed, circuit breaker active");
+  console.log("[Agent2] Started — patterns + ML journal + correlation guard + circuit breaker active");
   runCycle();
 }
 
@@ -263,6 +312,7 @@ function getStatus() {
     schedule:       config.SCHEDULE,
     positions:      posTracker.getAll(),
     circuitBreaker: { active: circuitBreakerActive, peakEquity },
+    mlStats:        journal.getAllStats(),
   };
 }
 

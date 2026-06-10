@@ -32,6 +32,12 @@ app.get("/api/trade-log", (req, res) => {
   res.json(scheduler.getTradeLog());
 });
 
+// ML stats — signal accuracy learned from trade journal
+app.get("/api/ml-stats", (req, res) => {
+  const status = scheduler.getStatus();
+  res.json(status.mlStats || {});
+});
+
 // Scheduler controls
 app.get("/api/scheduler/status", (req, res) => {
   res.json(scheduler.getStatus());
