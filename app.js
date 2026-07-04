@@ -1036,30 +1036,38 @@ function employeeDetailModal(eid){
     return ovl(`
       <div class="mhd">
         ${av(e.name,e.color)}
-        <div><h2 style="margin:0;font-size:19px">${esc(e.name)}</h2>
-          <div class="muted" style="font-size:13px">${esc(e.entity)} · ABN ${esc(e.abn)}</div>
+        <div><h2 style="margin:0;font-size:19px">${esc(e.name)}${e.preferred?` <span style="font-weight:400;color:var(--muted-c)">(${esc(e.preferred)})</span>`:''}</h2>
+          <div class="muted" style="font-size:13px">${esc(e.empType||e.entity||'Contractor')} · ABN ${esc(e.abn||'—')}</div>
         </div>
         <button class="btn sm" onclick="app.editEmployee('${eid}');app.close()">Edit</button>
         <button class="x" onclick="app.close()">×</button>
       </div>
       <div class="mbd">
-        <div style="display:flex;gap:8px;margin-bottom:12px">
-          ${e.status==='sick'?'<span class="badge b-purple"><span class="dot"></span>Sick leave</span>':'<span class="badge b-green"><span class="dot"></span>Active</span>'}
-          <span class="badge b-slate">$${e.payRate}/h</span>
-          <span class="badge b-slate">${esc(e.position)}</span>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+          ${e.status==='sick'?'<span class="badge b-purple"><span class="dot"></span>Sick leave</span>':e.status==='inactive'?'<span class="badge b-slate"><span class="dot"></span>Inactive</span>':'<span class="badge b-green"><span class="dot"></span>Active</span>'}
+          <span class="badge b-slate">$${e.payRate}/h${e.superIncluded?' · super incl.':''}</span>
         </div>
         <dl class="kv">
-          <dt>Phone</dt><dd>${esc(e.phone)}</dd>
-          <dt>Email</dt><dd>${esc(e.email)}</dd>
-          <dt>Skills</dt><dd>${esc(e.skills)}</dd>
-          <dt>Since</dt><dd>${esc(e.since)}</dd>
+          <dt>Phone</dt><dd>${e.phone?`<a href="tel:${esc(e.phone)}">${esc(e.phone)}</a>`:'—'}</dd>
+          <dt>Email</dt><dd>${e.email?`<a href="mailto:${esc(e.email)}">${esc(e.email)}</a>`:'—'}</dd>
+          <dt>Skills</dt><dd>${esc(e.skills||'—')}</dd>
+          <dt>Since</dt><dd>${esc(e.since||'—')}</dd>
+          ${e.passport?`<dt>Passport</dt><dd>${esc(e.passport)}${e.passportFile?` · <span style="color:var(--green)">✓ on file</span>`:''}</dd>`:''}
         </dl>
-        ${docsSoon.length?`<div class="note" style="margin-top:12px">⚠️ ${docsSoon.length} document(s) expiring soon: ${docsSoon.map(dc=>dc.name).join(', ')}</div>`:''}
-        <div class="sec">Documents</div>
-        ${(e.docs||[]).map(dc=>`<div class="row">
-          <span class="badge ${dc.expiry&&new Date(dc.expiry)<=addDays(NOW,60)?'b-amber':'b-green'}">${dc.expiry&&new Date(dc.expiry)<=addDays(NOW,60)?'⚠':'✓'}</span>
-          <div class="grow"><div class="t">${esc(dc.name)}</div><div class="s">${dc.expiry?'Expires '+dc.expiry:'On file'}</div></div>
-        </div>`).join('')}
+        <div class="sec">Emergency contact</div>
+        <dl class="kv">
+          <dt>Name</dt><dd>${esc(e.ecName||'—')}</dd>
+          <dt>Relationship</dt><dd>${esc(e.ecRel||'—')}</dd>
+          <dt>Mobile</dt><dd>${e.ecPhone?`<a href="tel:${esc(e.ecPhone)}">${esc(e.ecPhone)}</a>`:'—'}</dd>
+        </dl>
+        <div class="sec">Compliance</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+          <span class="badge ${e.pli?'b-green':'b-red'}">Public liability ${e.pli?'✓':'✗'}</span>
+          <span class="badge ${e.policeCheck?'b-green':'b-red'}">Police check ${e.policeCheck?'✓':'✗'}</span>
+          <span class="badge ${e.whiteCard?'b-green':'b-red'}">White card ${e.whiteCard?'✓':'✗'}</span>
+          <span class="badge ${e.wwcCheck?'b-green':'b-red'}">WWC check ${e.wwcCheck?'✓':'✗'}</span>
+        </div>
+        ${e.notes?`<div class="note" style="margin-top:10px">📝 ${esc(e.notes)}</div>`:''}
         <div class="sec">Assigned shifts (${myShifts.length})</div>
         ${myShifts.map(sh=>{const site=getSite(sh.siteId);return `<div class="row">
           <div class="grow"><div class="t">${esc(sh.name)}</div><div class="s">${esc(site?.name||'')} · ${sh.days.map(d=>DAYS[d].slice(0,3)).join(', ')}</div></div>
@@ -1217,39 +1225,83 @@ function shiftFormModal(existingId, prefillSiteId){
 function employeeFormModal(existingId){
   const e = existingId ? getEmployee(existingId) : null;
   const title = e ? 'Edit subcontractor' : 'New subcontractor';
+  const chk = (id, label, checked) =>
+    `<label class="chk-row"><input type="checkbox" id="${id}" ${checked?'checked':''}><span>${label}</span></label>`;
   return ()=>ovl(`
     <div class="mhd"><div><h2 style="margin:0">${title}</h2></div><button class="x" onclick="app.close()">×</button></div>
     <div class="mbd">
+
+      <div class="sec" style="margin-top:0">Personal details</div>
       <div class="form-grid">
         <div class="field"><label>Full name *</label><input class="input" id="ef_name" value="${esc(e?.name||'')}"></div>
-        <div class="field"><label>Position</label><input class="input" id="ef_pos" value="${esc(e?.position||'')}"></div>
+        <div class="field"><label>Preferred name</label><input class="input" id="ef_preferred" placeholder="e.g. nickname" value="${esc(e?.preferred||'')}"></div>
       </div>
       <div class="form-grid">
-        <div class="field"><label>Phone</label><input class="input" id="ef_phone" value="${esc(e?.phone||'')}"></div>
+        <div class="field"><label>Phone</label><input class="input" type="tel" id="ef_phone" value="${esc(e?.phone||'')}"></div>
         <div class="field"><label>Email</label><input class="input" type="email" id="ef_email" value="${esc(e?.email||'')}"></div>
       </div>
       <div class="form-grid">
-        <div class="field"><label>ABN</label><input class="input" id="ef_abn" value="${esc(e?.abn||'')}"></div>
-        <div class="field"><label>Entity type</label>
-          <select class="input" id="ef_entity">
-            ${['Sole trader','Pty Ltd','Partnership','Trust'].map(t=>`<option ${e?.entity===t?'selected':''}>${t}</option>`).join('')}
+        <div class="field"><label>Employee type *</label>
+          <select class="input" id="ef_emptype">
+            ${['Full time','Part time','Casual','Contractor'].map(t=>`<option ${(e?.empType||'Casual')===t?'selected':''}>${t}</option>`).join('')}
           </select>
         </div>
-      </div>
-      <div class="form-grid">
         <div class="field"><label>Pay rate ($/h) *</label><input class="input" type="number" id="ef_pay" value="${e?.payRate||''}"></div>
-        <div class="field"><label>Skills / site types</label><input class="input" id="ef_skills" value="${esc(e?.skills||'')}"></div>
       </div>
       <div class="form-grid">
-        <div class="field"><label>Status</label>
-          <select class="input" id="ef_status">
-            <option value="active" ${e?.status!=='sick'?'selected':''}>Active</option>
-            <option value="sick" ${e?.status==='sick'?'selected':''}>Sick leave</option>
-            <option value="inactive">Inactive</option>
-          </select>
-        </div>
+        <div class="field"><label>ABN</label><input class="input" id="ef_abn" value="${esc(e?.abn||'')}"></div>
         <div class="field"><label>Started (YYYY-MM)</label><input class="input" id="ef_since" value="${esc(e?.since||'')}"></div>
       </div>
+      <div class="form-grid">
+        <div class="field"><label>Skills / site types</label><input class="input" id="ef_skills" value="${esc(e?.skills||'')}"></div>
+        <div class="field"><label>Status</label>
+          <select class="input" id="ef_status">
+            <option value="active" ${e?.status==='active'||!e?'selected':''}>Active</option>
+            <option value="sick" ${e?.status==='sick'?'selected':''}>Sick leave</option>
+            <option value="inactive" ${e?.status==='inactive'?'selected':''}>Inactive</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="sec">Passport</div>
+      <div class="form-grid single">
+        <div class="field"><label>Passport number</label><input class="input" id="ef_passport" placeholder="e.g. PA1234567" value="${esc(e?.passport||'')}"></div>
+      </div>
+      <div class="field" style="margin-bottom:14px">
+        <label>Passport document</label>
+        <label class="uploader" style="margin-top:4px">
+          ${e?.passportFile?`<span style="color:var(--green)">✓ ${esc(e.passportFile)}</span> · replace`:'＋ Upload passport scan'}
+          <input type="file" accept="image/*,.pdf" onchange="app.uploadPassport(event,'${existingId||''}')">
+        </label>
+      </div>
+
+      <div class="sec">Emergency contact</div>
+      <div class="form-grid">
+        <div class="field"><label>Contact name</label><input class="input" id="ef_ecname" placeholder="e.g. Sarah Smith" value="${esc(e?.ecName||'')}"></div>
+        <div class="field"><label>Relationship</label><input class="input" id="ef_ecrel" placeholder="e.g. Spouse, Parent" value="${esc(e?.ecRel||'')}"></div>
+      </div>
+      <div class="form-grid single">
+        <div class="field"><label>Emergency mobile</label><input class="input" type="tel" id="ef_ecphone" placeholder="e.g. 0412 345 678" value="${esc(e?.ecPhone||'')}"></div>
+      </div>
+
+      <div class="sec">Compliance checks</div>
+      <div class="chk-group">
+        ${chk('ef_pli',  'Public liability insurance', e?.pli)}
+        ${chk('ef_police','Police check',              e?.policeCheck)}
+        ${chk('ef_wcard', 'White card',                e?.whiteCard)}
+        ${chk('ef_wwc',   'Working With Children (WWC) check', e?.wwcCheck)}
+      </div>
+
+      <div class="sec">Payroll</div>
+      <div class="chk-group">
+        ${chk('ef_super', 'Superannuation included in pay rate', e?.superIncluded)}
+      </div>
+
+      <div class="sec">Special notes</div>
+      <div class="form-grid single">
+        <div class="field"><textarea class="input" id="ef_notes" placeholder="Any additional notes…" style="min-height:80px">${esc(e?.notes||'')}</textarea></div>
+      </div>
+
       <div class="form-actions">
         <button class="btn" onclick="app.close()">Cancel</button>
         <button class="btn primary" onclick="app.saveEmployee('${existingId||''}')">Save</button>
@@ -1426,23 +1478,38 @@ const app = {
   editEmployee(id){ S.modal=employeeFormModal(id); render(); },
   saveEmployee(id){
     const name=el('ef_name')?.value.trim();
-    if(!name){ toast('Name is required.'); return; }
+    if(!name){ toast('Full name is required.'); return; }
     const data={
-      name, position:el('ef_pos')?.value.trim()||'',
+      name,
+      preferred:el('ef_preferred')?.value.trim()||'',
       phone:el('ef_phone')?.value.trim()||'',
       email:el('ef_email')?.value.trim()||'',
+      empType:el('ef_emptype')?.value||'Casual',
       abn:el('ef_abn')?.value.trim()||'',
-      entity:el('ef_entity')?.value||'Sole trader',
       payRate:parseFloat(el('ef_pay')?.value)||0,
       skills:el('ef_skills')?.value.trim()||'',
       status:el('ef_status')?.value||'active',
       since:el('ef_since')?.value.trim()||'',
+      passport:el('ef_passport')?.value.trim()||'',
+      ecName:el('ef_ecname')?.value.trim()||'',
+      ecRel:el('ef_ecrel')?.value.trim()||'',
+      ecPhone:el('ef_ecphone')?.value.trim()||'',
+      pli:el('ef_pli')?.checked||false,
+      policeCheck:el('ef_police')?.checked||false,
+      whiteCard:el('ef_wcard')?.checked||false,
+      wwcCheck:el('ef_wwc')?.checked||false,
+      superIncluded:el('ef_super')?.checked||false,
+      notes:el('ef_notes')?.value.trim()||'',
       color: colorFor(name),
       docs:[],
     };
-    if(id){ const existing=getEmployee(id); Store.update('employees',id,{...data, color:existing?.color||colorFor(name), docs:existing?.docs||[]}); toast('Subcontractor updated.'); }
-    else { Store.add('employees',{...data, id:uid()}); toast('Subcontractor created!'); }
+    if(id){ const existing=getEmployee(id); Store.update('employees',id,{...data, color:existing?.color||colorFor(name), docs:existing?.docs||[], passportFile:existing?.passportFile||''}); toast('Subcontractor updated.'); }
+    else { Store.add('employees',{...data, id:uid(), passportFile:''}); toast('Subcontractor created!'); }
     S.modal=null; render();
+  },
+  uploadPassport(event, empId){
+    const file=event.target.files[0]; if(!file) return;
+    if(empId){ Store.update('employees',empId,{passportFile:file.name}); toast('Passport recorded: '+file.name); render(); }
   },
 
   // ── Delete ──

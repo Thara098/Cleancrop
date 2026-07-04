@@ -199,6 +199,11 @@ dl.kv dd{font-weight:500;}
 .uploader:hover{border-color:var(--brand);background:var(--brand-l);}
 .uploader input{display:none;}
 
+/* ── Checkbox group ── */
+.chk-group{display:flex;flex-direction:column;gap:10px;margin-bottom:14px;}
+.chk-row{display:flex;align-items:center;gap:10px;font-size:13.5px;cursor:pointer;}
+.chk-row input[type=checkbox]{width:17px;height:17px;accent-color:var(--brand);cursor:pointer;flex-shrink:0;}
+
 /* ── Forms ── */
 .form-grid{display:grid;gap:14px;grid-template-columns:1fr 1fr;margin-bottom:14px;}
 .form-grid.single{grid-template-columns:1fr;}
