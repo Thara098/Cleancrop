@@ -866,7 +866,10 @@ function jobModalFor(jobId){
     return ovl(`
       <div class="mhd">
         <div>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">${sbadge(st)}</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+            ${sbadge(st)}
+            <span class="badge ${sh.type==='oneoff'?'b-purple':'b-blue'}">${sh.type==='oneoff'?'One-off':'Recurring'}</span>
+          </div>
           <h2 style="margin:0 0 2px;font-size:19px">${esc(sh.name)}</h2>
           <div class="muted" style="font-size:13px">📍 ${esc(site.name)} · ${j.date}</div>
         </div>
@@ -940,7 +943,10 @@ function dayModal(y,mo,d){
             <div class="s">🕐 ${fmtT(shift.startTime)}–${fmtT(shift.endTime)} · ${esc(emp.name)}</div>
             ${job?`<div class="prog" style="margin-top:5px;width:120px"><i style="width:${job.scope.length?Math.round(done/job.scope.length*100):0}%"></i></div>`:''}
           </div>
-          <div class="right">${sbadge(st)}</div>
+          <div class="right">
+            ${sbadge(st)}
+            <span class="badge ${shift.type==='oneoff'?'b-purple':'b-blue'}" style="font-size:11px">${shift.type==='oneoff'?'One-off':'Recurring'}</span>
+          </div>
         </div>`;
       }).join('') : '<div class="empty">No shifts.</div>'}</div>`, false);
   };
