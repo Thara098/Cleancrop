@@ -1,17 +1,18 @@
 /* ============================================================
-   CleanCrop — full prototype
+   CleanCops — full prototype
    Storage: localStorage (prefix "cc_")
    ============================================================ */
 
 // ─── 1. CONFIG & HELPERS ──────────────────────────────────────────────────────
 
 const ACCOUNTS = [
-  { username: 'admin',  password: 'cleancrop', role: 'manager', name: 'Admin Manager' },
-  { username: 'worker', password: 'cleancrop', role: 'field',   name: 'Field Worker' },
+  { username: 'admin',  password: 'cleancops', role: 'manager', name: 'Admin Manager' },
+  { username: 'worker', password: 'cleancops', role: 'field',   name: 'Field Worker' },
 ];
 
 const NOW   = new Date();
 const GST   = 0.10;
+const SUPER = 0.115; // Australian super rate 2024-25
 const DAYS  = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const MON   = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const COLORS= ['#0d9488','#2563eb','#7c3aed','#db2777','#ea580c','#0891b2','#84cc16','#65a30d'];
@@ -121,8 +122,9 @@ function loadDB(){
   db.employees = Store.load('employees', SEED_EMPLOYEES);
   db.shifts    = Store.load('shifts',    SEED_SHIFTS);
   db.jobs      = Store.load('jobs',      []);        // stored job instances
-  db.invoices  = Store.load('invoices',  []);
-  db.payslips  = Store.load('payslips',  []);
+  db.invoices    = Store.load('invoices',    []);
+  db.payslips    = Store.load('payslips',    []);
+  db.empinvoices = Store.load('empinvoices', []);
 }
 
 // ─── 5. STATE ─────────────────────────────────────────────────────────────────
@@ -132,6 +134,7 @@ const S = {
   role:      'manager',
   fieldEmp:  'e1',
   calView:   'regular',
+  invView:   'company',
   calMonth:  new Date(NOW.getFullYear(), NOW.getMonth(), 1),
   payMonth:  new Date(NOW.getFullYear(), NOW.getMonth(), 1),
   invMonth:  new Date(NOW.getFullYear(), NOW.getMonth(), 1),
@@ -440,8 +443,8 @@ function calendar(){
     ? 'Regular Calendar – Recurring Ongoing'
     : 'Ad Hoc Calendar – One-off Jobs';
   const calSubtitle = S.calView==='regular'
-    ? 'Showing recurring shifts · click any day to open · colour = assigned worker'
-    : 'Showing one-off jobs · click any day to open · colour = assigned worker';
+    ? 'Showing recurring shifts · click any day to open'
+    : 'Showing one-off jobs · click any day to open';
 
   return `
   <div class="calhead no-print">
@@ -641,101 +644,295 @@ function employees(){
   </div>`;
 }
 
-/* ── Payroll ── */
-function payroll(){
-  const d=S.payMonth;
-  const rows=db.employees.map(e=>{
-    const empShifts=shiftsForEmp(e.id).filter(s=>s.status==='active');
-    let hrs=0;
-    empShifts.forEach(s=>{
-      const h=timeDiffHrs(s.startTime,s.endTime);
-      let days=0;
-      for(let dd=1;dd<=31;dd++){
-        const dt=new Date(d.getFullYear(),d.getMonth(),dd);
-        if(dt.getMonth()!==d.getMonth()) break;
-        if(s.days.includes(dt.getDay())) days++;
-      }
-      hrs+=h*days;
+/* ── Payroll helpers ── */
+function payrollCalc(e, yr, mo){
+  const monthStr    = `${yr}-${pad(mo+1)}`;
+  const periodStart = `${yr}-${pad(mo+1)}-01`;
+  const periodEnd   = `${yr}-${pad(mo+1)}-25`;
+
+  function jobActualHrs(j){
+    if(j.clockIn && j.clockOut) return Math.max(0, timeDiffHrs(j.clockIn,j.clockOut) - (j.breakStart&&j.breakEnd ? timeDiffHrs(j.breakStart,j.breakEnd):0));
+    return null;
+  }
+
+  // Build site breakdown from ALL active assigned shifts (1–25 of the month)
+  const bySite = {};
+  shiftsForEmp(e.id).filter(s=>s.status==='active').forEach(s=>{
+    const site = getSite(s.siteId);
+    if(!site) return;
+    const shiftHrs = timeDiffHrs(s.startTime, s.endTime);
+    let shiftDays = 0;
+    for(let dd=1; dd<=25; dd++){
+      const dt = new Date(yr, mo, dd);
+      if(dt.getMonth()!==mo) break;
+      if(s.days && s.days.includes(dt.getDay())) shiftDays++;
+    }
+    const schedHrs = shiftHrs * shiftDays;
+    if(!bySite[site.id]) bySite[site.id]={site, shift:s, schedHrs:0, actualHrs:0, hasActual:false, jobsDone:0, jobsTotal:shiftDays};
+    bySite[site.id].schedHrs += schedHrs;
+
+    // overlay actual hours from completed jobs in the period
+    const periodJobs = db.jobs.filter(j=>j.shiftId===s.id && j.date>=periodStart && j.date<=periodEnd);
+    periodJobs.forEach(j=>{
+      const a = jobActualHrs(j);
+      if(a!==null){ bySite[site.id].actualHrs+=a; bySite[site.id].hasActual=true; }
+      if(j.status==='completed') bySite[site.id].jobsDone++;
     });
-    const gross=hrs*e.payRate;
-    return {e,hrs,gross};
   });
-  const total=rows.reduce((s,r)=>s+r.gross,0);
+
+  const totalSchedHrs = Object.values(bySite).reduce((sum,v)=>sum+v.schedHrs, 0);
+  const totalActualHrs = Object.values(bySite).filter(v=>v.hasActual).reduce((sum,v)=>sum+v.actualHrs, 0);
+  const billedHrs = totalActualHrs || totalSchedHrs;
+  const gross     = billedHrs * (e.payRate||0);
+  const superAmt  = e.superIncluded ? 0 : gross * SUPER;
+  const total     = gross + superAmt;
+  const inv       = db.empinvoices.find(i=>i.empId===e.id && i.month===monthStr) || {status:'pending',invoiceFile:'',invoiceAmount:''};
+
+  return {bySite, totalSchedHrs, totalActualHrs, billedHrs, gross, superAmt, total, inv, monthStr};
+}
+
+/* ── Payroll summary list ── */
+function payroll(){
+  const d = S.payMonth;
+  const yr = d.getFullYear(), mo = d.getMonth();
+
+  const statusColors = {pending:'b-slate',submitted:'b-blue',approved:'b-amber',paid:'b-green'};
+
+  let grandTotal = 0;
+  const rows = db.employees.map(e=>{
+    const {total, billedHrs, inv} = payrollCalc(e, yr, mo);
+    grandTotal += total;
+    const statusLabel = (inv.status||'pending');
+    return `
+    <tr style="cursor:pointer" onclick="app.openEmpInvoice('${e.id}','${yr}','${mo}')">
+      <td><div style="display:flex;align-items:center;gap:10px">${av(e.name,e.color,'av-sm')}<div><b>${esc(e.name)}</b>${e.preferred?` <span style="color:var(--muted-c);font-weight:400">(${esc(e.preferred)})</span>`:''}<div class="s">${esc(e.empType||'Contractor')} · $${e.payRate}/h</div></div></div></td>
+      <td class="num">${billedHrs.toFixed(1)}h</td>
+      <td class="num">${money(total)}</td>
+      <td><span class="badge ${statusColors[statusLabel]}">${statusLabel.charAt(0).toUpperCase()+statusLabel.slice(1)}</span></td>
+      <td><button class="btn sm primary" onclick="event.stopPropagation();app.openEmpInvoice('${e.id}','${yr}','${mo}')">Open Invoice</button></td>
+    </tr>`;
+  }).join('');
+
   return `
   <div class="calhead">
-    <h1 class="page-title" style="margin:0">Payroll</h1>
+    <h1 class="page-title" style="margin:0">Payroll &amp; Invoices</h1>
     <div class="spacer"></div>
     <div class="seg no-print">
       <button onclick="app.payNav(-1)">‹</button>
-      <button class="on" style="cursor:default;min-width:120px">${monthName(d)}</button>
+      <button class="on" style="cursor:default;min-width:140px">${monthName(d)}</button>
       <button onclick="app.payNav(1)">›</button>
     </div>
   </div>
-  <p class="page-sub">Estimated gross pay based on recurring shifts × hours × pay rate</p>
+  <p class="page-sub">Billing period: 1–25 ${monthName(d)} · Super rate: 11.5% · Total payable: <b>${money(grandTotal)}</b></p>
   <div class="card">
     <div class="tbl-wrap"><table>
-      <thead><tr><th>Subcontractor</th><th>Active shifts</th><th>Est. hours</th><th>Pay rate</th><th>Gross pay</th></tr></thead>
-      <tbody>${rows.map(({e,hrs,gross})=>`<tr>
-        <td><div style="display:flex;align-items:center;gap:10px">${av(e.name,e.color,'av-sm')}<b>${esc(e.name)}</b></div></td>
-        <td class="num">${shiftsForEmp(e.id).filter(s=>s.status==='active').length}</td>
-        <td class="num">${hrs.toFixed(1)}h</td>
-        <td class="num">$${e.payRate}/h</td>
-        <td class="num"><b>${money(gross)}</b></td>
-      </tr>`).join('')}
-      <tr><td colspan="4" style="text-align:right;font-weight:700">Total estimated gross</td><td class="num"><b>${money(total)}</b></td></tr>
-      </tbody>
+      <thead><tr><th>Employee</th><th>Hours</th><th>Total payable</th><th>Status</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
     </table></div>
   </div>`;
 }
 
+/* ── Employee invoice modal ── */
+function empInvoiceModal(empId, yr, mo){
+  const e = getEmployee(empId);
+  if(!e) return;
+  const d = new Date(yr, mo, 1);
+
+  S.modal = ()=>{
+    const {bySite, totalSchedHrs, totalActualHrs, billedHrs, gross, superAmt, total, inv, monthStr} = payrollCalc(e, yr, mo);
+    const submitted = parseFloat(inv.invoiceAmount)||0;
+    const diff = submitted ? Math.abs(total - submitted) : null;
+    const match = diff!==null && diff<0.5;
+    const statusColors = {pending:'b-slate',submitted:'b-blue',approved:'b-amber',paid:'b-green'};
+
+    const siteRows = Object.values(bySite).map(({site, shift, schedHrs, actualHrs, hasActual, jobsDone, jobsTotal})=>`
+      <tr>
+        <td>
+          <div style="font-weight:600">${esc(site.name)}</div>
+          <div class="s">${esc(site.address||'')}</div>
+        </td>
+        <td class="num">${esc(shift.name)}</td>
+        <td class="num">${fmtT(shift.startTime)} – ${fmtT(shift.endTime)}</td>
+        <td class="num">${jobsDone}/${jobsTotal} days</td>
+        <td class="num">${schedHrs.toFixed(1)}h</td>
+        <td class="num">${hasActual ? actualHrs.toFixed(1)+'h' : '<span class="muted">—</span>'}</td>
+        <td class="num">${money(schedHrs*(e.payRate||0))}</td>
+      </tr>`).join('');
+
+    const hasSites = Object.keys(bySite).length > 0;
+
+    const inner = `
+    <div class="mhd">
+      <div>
+        <div style="display:flex;align-items:center;gap:10px">${av(e.name,e.color,'av-sm')}
+          <div>
+            <div style="font-size:16px;font-weight:700">${esc(e.name)}${e.preferred?' ('+esc(e.preferred)+')':''}</div>
+            <div class="s">Billing period: 1–25 ${monthName(d)} · ${esc(e.empType||'Contractor')} · $${e.payRate}/h</div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="badge ${statusColors[inv.status]||'b-slate'}">${(inv.status||'pending').charAt(0).toUpperCase()+(inv.status||'pending').slice(1)}</span>
+        <button class="x" onclick="app.close()">×</button>
+      </div>
+    </div>
+    <div class="mbd">
+
+      <div class="sec">Assigned Shifts &amp; Sites</div>
+      ${hasSites ? `
+      <div class="tbl-wrap" style="margin-bottom:18px"><table>
+        <thead><tr><th>Site</th><th>Shift</th><th>Times</th><th>Days done</th><th>Sched hrs</th><th>Actual hrs</th><th>Amount</th></tr></thead>
+        <tbody>${siteRows}</tbody>
+        <tfoot><tr>
+          <td colspan="4" style="text-align:right;font-weight:600">Totals</td>
+          <td class="num"><b>${totalSchedHrs.toFixed(1)}h</b></td>
+          <td class="num"><b>${totalActualHrs>0?totalActualHrs.toFixed(1)+'h':'—'}</b></td>
+          <td class="num"><b>${money(totalSchedHrs*(e.payRate||0))}</b></td>
+        </tr></tfoot>
+      </table></div>` : `<p class="muted" style="font-size:13px;margin-bottom:16px">No active shifts assigned to this employee.</p>`}
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px">
+        <div class="kpi"><div class="lbl">Billed hours</div><div class="val">${billedHrs.toFixed(1)}h</div></div>
+        <div class="kpi"><div class="lbl">Pay rate</div><div class="val">$${e.payRate}/h</div></div>
+        <div class="kpi"><div class="lbl">Gross pay</div><div class="val">${money(gross)}</div></div>
+        <div class="kpi"><div class="lbl">Super (11.5%)</div><div class="val">${e.superIncluded?'<span style="font-size:12px;color:var(--muted-c)">Included in rate</span>':money(superAmt)}</div></div>
+        <div class="kpi" style="grid-column:span 2;border-color:var(--brand)"><div class="lbl">System total payable</div><div class="val" style="color:var(--brand);font-size:26px">${money(total)}</div></div>
+      </div>
+
+      <div class="sec">Invoice Cross-Check</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px">
+        <div class="field" style="flex:1;min-width:180px">
+          <label>Employee submitted amount ($)</label>
+          <input class="input" type="number" id="inv_amt_${e.id}" placeholder="0.00" value="${inv.invoiceAmount||''}">
+        </div>
+        <button class="btn sm primary" onclick="app.saveInvAmount('${e.id}','${monthStr}')">Save</button>
+        ${submitted ? `<span class="badge ${match?'b-green':'b-red'}" style="align-self:center">${match?'✓ Matches system total':'✗ Differs by '+money(diff)}</span>` : ''}
+      </div>
+
+      <div class="sec">Employee Invoice File</div>
+      ${inv.invoiceFile ? `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;padding:10px 14px;background:#f0fdf4;border:1px solid #22c55e;border-radius:8px">
+        <span style="color:#16a34a;font-size:15px">✓</span>
+        <span style="flex:1;font-size:13px;font-weight:600">${esc(inv.invoiceFile)}</span>
+        <button class="btn sm primary" onclick="app.downloadEmpInvoice('${e.id}','${monthStr}')">Download</button>
+      </div>` : ''}
+      <label class="uploader" style="margin-bottom:16px">
+        ${inv.invoiceFile ? 'Replace file' : '＋ Upload invoice (PDF or image)'}
+        <input type="file" accept=".pdf,image/*" onchange="app.uploadEmpInvoice(event,'${e.id}','${monthStr}')">
+      </label>
+
+      <div class="sec">Status</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        ${['pending','submitted','approved','paid'].map(s=>`<button class="btn sm ${inv.status===s?'primary':''}" onclick="app.setInvStatus('${e.id}','${monthStr}','${s}')">${s.charAt(0).toUpperCase()+s.slice(1)}</button>`).join('')}
+      </div>
+
+    </div>
+    <div class="mbd" style="border-top:1px solid var(--border);padding-top:14px">
+      <button class="btn" onclick="app.close()">Close</button>
+    </div>`;
+    return ovl(inner, true);
+  };
+  render();
+}
+
 /* ── Invoices ── */
 function invoices(){
-  const d=S.invMonth;
-  const rows=db.clients.map(c=>{
-    const sitesC=db.sites.filter(s=>s.clientId===c.id);
-    let subtotal=0;
-    sitesC.forEach(s=>{
-      db.shifts.filter(sh=>sh.siteId===s.id&&sh.status==='active').forEach(sh=>{
-        const h=timeDiffHrs(sh.startTime,sh.endTime);
-        let days=0;
-        for(let dd=1;dd<=31;dd++){
-          const dt=new Date(d.getFullYear(),d.getMonth(),dd);
-          if(dt.getMonth()!==d.getMonth()) break;
-          if(sh.days.includes(dt.getDay())) days++;
-        }
-        subtotal+=h*days*sh.chargeRate;
+  const d   = S.invMonth;
+  const yr  = d.getFullYear(), mo = d.getMonth();
+  const monthStr    = `${yr}-${pad(mo+1)}`;
+  const isCompany   = S.invView === 'company';
+
+  /* ── Company view ── */
+  function companyView(){
+    const rows = db.clients.map(c=>{
+      const sitesC = db.sites.filter(s=>s.clientId===c.id);
+      let subtotal = 0;
+      sitesC.forEach(s=>{
+        db.shifts.filter(sh=>sh.siteId===s.id&&sh.status==='active').forEach(sh=>{
+          const h=timeDiffHrs(sh.startTime,sh.endTime);
+          let days=0;
+          for(let dd=1;dd<=31;dd++){
+            const dt=new Date(yr,mo,dd);
+            if(dt.getMonth()!==mo) break;
+            if(sh.days.includes(dt.getDay())) days++;
+          }
+          subtotal+=h*days*sh.chargeRate;
+        });
       });
+      const gst=subtotal*GST;
+      return {c,sitesC,subtotal,gst,total:subtotal+gst};
     });
-    const gst=subtotal*GST;
-    return {c,sitesC,subtotal,gst,total:subtotal+gst};
-  });
-  const grandTotal=rows.reduce((s,r)=>s+r.total,0);
+    const grandTotal=rows.reduce((s,r)=>s+r.total,0);
+    return `
+    <p class="page-sub">Estimated client invoices · active recurring shifts × charge rate + 10% GST · Grand total: <b>${money(grandTotal)}</b></p>
+    <div class="card">
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Client</th><th>Sites</th><th>Subtotal</th><th>GST 10%</th><th>Total</th><th></th></tr></thead>
+        <tbody>${rows.map(({c,sitesC,subtotal,gst,total})=>`<tr>
+          <td><b>${esc(c.name)}</b></td>
+          <td class="num">${sitesC.length}</td>
+          <td class="num">${money(subtotal)}</td>
+          <td class="num">${money(gst)}</td>
+          <td class="num"><b>${money(total)}</b></td>
+          <td><button class="btn sm" onclick="window.print()">Print</button></td>
+        </tr>`).join('')}
+        <tr><td colspan="4" style="text-align:right;font-weight:700">Grand total (incl. GST)</td><td class="num"><b>${money(grandTotal)}</b></td><td></td></tr>
+        </tbody>
+      </table></div>
+    </div>`;
+  }
+
+  /* ── Employee view ── */
+  function employeeView(){
+    const statusColors = {pending:'b-slate',submitted:'b-blue',approved:'b-amber',paid:'b-green'};
+    let grandTotal = 0;
+    const rows = db.employees.map(e=>{
+      const {total, billedHrs, inv} = payrollCalc(e, yr, mo);
+      grandTotal += total;
+      const statusLabel = inv.status||'pending';
+      const hasFile = !!inv.invoiceFile;
+      return `
+      <tr>
+        <td><div style="display:flex;align-items:center;gap:10px">${av(e.name,e.color,'av-sm')}<div><b>${esc(e.name)}</b>${e.preferred?` <span style="color:var(--muted-c)">(${esc(e.preferred)})</span>`:''}<div class="s">${esc(e.empType||'Contractor')}</div></div></div></td>
+        <td class="num">${billedHrs.toFixed(1)}h</td>
+        <td class="num">${money(total)}</td>
+        <td>${hasFile
+          ? `<span style="color:var(--green);font-size:13px">✓ ${esc(inv.invoiceFile)}</span>`
+          : `<span class="muted" style="font-size:13px">Not uploaded</span>`}</td>
+        <td><span class="badge ${statusColors[statusLabel]}">${statusLabel.charAt(0).toUpperCase()+statusLabel.slice(1)}</span></td>
+        <td style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn sm primary" onclick="app.openEmpInvoice('${e.id}','${yr}','${mo}')">Open</button>
+          ${hasFile ? `<button class="btn sm" onclick="app.downloadEmpInvoice('${e.id}','${monthStr}')">Download</button>` : ''}
+        </td>
+      </tr>`;
+    }).join('');
+
+    return `
+    <p class="page-sub">Employee invoices · billing period 1–25 ${monthName(d)} · Total payable: <b>${money(grandTotal)}</b></p>
+    <div class="card">
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Employee</th><th>Hours</th><th>Total payable</th><th>Invoice file</th><th>Status</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </div>`;
+  }
+
   return `
   <div class="calhead">
     <h1 class="page-title" style="margin:0">Invoicing</h1>
     <div class="spacer"></div>
+    <select class="cal-view-sel" onchange="app.setInvView(this.value)">
+      <option value="company"  ${isCompany?'selected':''}>Company Invoices — Clients</option>
+      <option value="employee" ${!isCompany?'selected':''}>Employee Invoices — Staff</option>
+    </select>
     <div class="seg no-print">
       <button onclick="app.invNav(-1)">‹</button>
-      <button class="on" style="cursor:default;min-width:120px">${monthName(d)}</button>
+      <button class="on" style="cursor:default;min-width:130px">${monthName(d)}</button>
       <button onclick="app.invNav(1)">›</button>
     </div>
-    <button class="btn no-print" onclick="window.print()">🖨 Print</button>
+    <button class="btn no-print" onclick="window.print()">Print</button>
   </div>
-  <p class="page-sub">Estimated monthly invoices based on active recurring shifts × charge rate + 10% GST</p>
-  <div class="card">
-    <div class="tbl-wrap"><table>
-      <thead><tr><th>Client</th><th>Sites</th><th>Subtotal</th><th>GST 10%</th><th>Total</th></tr></thead>
-      <tbody>${rows.map(({c,sitesC,subtotal,gst,total})=>`<tr>
-        <td><b>${esc(c.name)}</b></td>
-        <td class="num">${sitesC.length}</td>
-        <td class="num">${money(subtotal)}</td>
-        <td class="num">${money(gst)}</td>
-        <td class="num"><b>${money(total)}</b></td>
-      </tr>`).join('')}
-      <tr><td colspan="4" style="text-align:right;font-weight:700">Grand total (incl. GST)</td><td class="num"><b>${money(grandTotal)}</b></td></tr>
-      </tbody>
-    </table></div>
-  </div>`;
+  ${isCompany ? companyView() : employeeView()}`;
 }
 
 /* ── Weekly Report ── */
@@ -1435,6 +1632,47 @@ const app = {
   calToday(){ S.calMonth=new Date(NOW.getFullYear(),NOW.getMonth(),1); render(); },
   payNav(d){ S.payMonth=new Date(S.payMonth.getFullYear(), S.payMonth.getMonth()+d, 1); render(); },
   invNav(d){ S.invMonth=new Date(S.invMonth.getFullYear(), S.invMonth.getMonth()+d, 1); render(); },
+  setInvView(v){ S.invView=v; render(); },
+
+  downloadEmpInvoice(empId, monthStr){
+    const inv = db.empinvoices.find(i=>i.empId===empId && i.month===monthStr);
+    if(!inv?.invoiceFile){ toast('No invoice file uploaded yet.'); return; }
+    // Since files are stored by name only (no binary), show the filename as a toast
+    // In a real server environment this would trigger a file download
+    toast('Invoice file: ' + inv.invoiceFile + ' — open from where it was saved on your device.');
+  },
+
+  openEmpInvoice(empId, yr, mo){ empInvoiceModal(empId, parseInt(yr), parseInt(mo)); },
+
+  saveInvAmount(empId, monthStr){
+    const val = document.getElementById('inv_amt_'+empId)?.value || '';
+    let inv = db.empinvoices.find(i=>i.empId===empId && i.month===monthStr);
+    if(!inv){ inv={id:'ei'+Date.now(), empId, month:monthStr, invoiceFile:'', invoiceAmount:'', status:'pending', uploadedAt:''}; db.empinvoices.push(inv); }
+    inv.invoiceAmount = val;
+    if(val && inv.status==='pending') inv.status='submitted';
+    Store.save('empinvoices', db.empinvoices);
+    render();
+  },
+
+  uploadEmpInvoice(event, empId, monthStr){
+    const file = event.target.files[0];
+    if(!file) return;
+    let inv = db.empinvoices.find(i=>i.empId===empId && i.month===monthStr);
+    if(!inv){ inv={id:'ei'+Date.now(), empId, month:monthStr, invoiceFile:'', invoiceAmount:'', status:'pending', uploadedAt:''}; db.empinvoices.push(inv); }
+    inv.invoiceFile = file.name;
+    inv.uploadedAt = new Date().toISOString();
+    if(inv.status==='pending') inv.status='submitted';
+    Store.save('empinvoices', db.empinvoices);
+    render();
+  },
+
+  setInvStatus(empId, monthStr, status){
+    let inv = db.empinvoices.find(i=>i.empId===empId && i.month===monthStr);
+    if(!inv){ inv={id:'ei'+Date.now(), empId, month:monthStr, invoiceFile:'', invoiceAmount:'', status:'pending', uploadedAt:''}; db.empinvoices.push(inv); }
+    inv.status = status;
+    Store.save('empinvoices', db.empinvoices);
+    render();
+  },
   week(d){ S.weekOff+=d; render(); },
   filter(k,v){ S.filters[k]=v; render(); },
 
