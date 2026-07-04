@@ -1068,6 +1068,9 @@ function employeeDetailModal(eid){
           <span class="badge ${e.wwcCheck?'b-green':'b-red'}">WWC check ${e.wwcCheck?'✓':'✗'}</span>
         </div>
         ${e.notes?`<div class="note" style="margin-top:10px">📝 ${esc(e.notes)}</div>`:''}
+        ${(e.attachments||[]).length?`
+        <div class="sec">Attachments (${e.attachments.length})</div>
+        ${e.attachments.map(f=>`<div class="row"><span class="badge b-blue">📄</span><div class="grow"><div class="t">${esc(f)}</div></div></div>`).join('')}`:''}
         <div class="sec">Assigned shifts (${myShifts.length})</div>
         ${myShifts.map(sh=>{const site=getSite(sh.siteId);return `<div class="row">
           <div class="grow"><div class="t">${esc(sh.name)}</div><div class="s">${esc(site?.name||'')} · ${sh.days.map(d=>DAYS[d].slice(0,3)).join(', ')}</div></div>
@@ -1297,6 +1300,22 @@ function employeeFormModal(existingId){
         ${chk('ef_super', 'Superannuation included in pay rate', e?.superIncluded)}
       </div>
 
+      <div class="sec">Other attachments</div>
+      <div class="field" style="margin-bottom:14px">
+        <label>Upload documents (certifications, ID, etc.)</label>
+        <label class="uploader" style="margin-top:4px">
+          ＋ Add attachment(s)
+          <input type="file" multiple accept="image/*,.pdf,.doc,.docx" onchange="app.uploadAttachments(event,'${existingId||''}')">
+        </label>
+        ${(e?.attachments||[]).length?`<div style="margin-top:8px;display:flex;flex-direction:column;gap:4px">
+          ${(e.attachments||[]).map((f,i)=>`<div style="display:flex;align-items:center;gap:8px;font-size:13px">
+            <span style="color:var(--green)">✓</span>
+            <span style="flex:1">${esc(f)}</span>
+            <button class="btn sm danger" onclick="app.removeAttachment('${existingId||''}',${i})">Remove</button>
+          </div>`).join('')}
+        </div>`:'<div class="muted" style="font-size:12px;margin-top:6px">No attachments yet.</div>'}
+      </div>
+
       <div class="sec">Special notes</div>
       <div class="form-grid single">
         <div class="field"><textarea class="input" id="ef_notes" placeholder="Any additional notes…" style="min-height:80px">${esc(e?.notes||'')}</textarea></div>
@@ -1503,13 +1522,29 @@ const app = {
       color: colorFor(name),
       docs:[],
     };
-    if(id){ const existing=getEmployee(id); Store.update('employees',id,{...data, color:existing?.color||colorFor(name), docs:existing?.docs||[], passportFile:existing?.passportFile||''}); toast('Subcontractor updated.'); }
-    else { Store.add('employees',{...data, id:uid(), passportFile:''}); toast('Subcontractor created!'); }
+    if(id){ const existing=getEmployee(id); Store.update('employees',id,{...data, color:existing?.color||colorFor(name), docs:existing?.docs||[], passportFile:existing?.passportFile||'', attachments:existing?.attachments||[]}); toast('Subcontractor updated.'); }
+    else { Store.add('employees',{...data, id:uid(), passportFile:'', attachments:[]}); toast('Subcontractor created!'); }
     S.modal=null; render();
   },
   uploadPassport(event, empId){
     const file=event.target.files[0]; if(!file) return;
     if(empId){ Store.update('employees',empId,{passportFile:file.name}); toast('Passport recorded: '+file.name); render(); }
+  },
+  uploadAttachments(event, empId){
+    if(!empId){ toast('Save the subcontractor first, then add attachments.'); return; }
+    const files=[...event.target.files]; if(!files.length) return;
+    const existing=getEmployee(empId);
+    const attachments=[...(existing?.attachments||[]), ...files.map(f=>f.name)];
+    Store.update('employees',empId,{attachments});
+    toast(`${files.length} attachment(s) added.`);
+    S.modal=()=>employeeFormModal(empId)(); render();
+  },
+  removeAttachment(empId, idx){
+    const existing=getEmployee(empId); if(!existing) return;
+    const attachments=(existing.attachments||[]).filter((_,i)=>i!==idx);
+    Store.update('employees',empId,{attachments});
+    toast('Attachment removed.');
+    S.modal=()=>employeeFormModal(empId)(); render();
   },
 
   // ── Delete ──
