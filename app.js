@@ -968,11 +968,20 @@ function clientDetailModal(cid){
       <button class="x" onclick="app.close()">×</button></div>
       <div class="mbd">
         <dl class="kv">
-          <dt>Contact</dt><dd>${esc(c.contact)}</dd>
-          <dt>Phone</dt><dd>${esc(c.phone)}</dd>
-          <dt>Email</dt><dd>${esc(c.email)}</dd>
-          <dt>Address</dt><dd>${esc(c.address)}</dd>
+          <dt>Address</dt><dd>${esc(c.address||'—')}</dd>
           <dt>Monthly budget</dt><dd><b>${money(rev)}</b></dd>
+        </dl>
+        <div class="sec">Primary contact</div>
+        <dl class="kv">
+          <dt>Name</dt><dd>${esc(c.c1name||c.contact||'—')}</dd>
+          <dt>Mobile</dt><dd><a href="tel:${esc(c.c1phone||c.phone)}">${esc(c.c1phone||c.phone||'—')}</a></dd>
+          <dt>Email</dt><dd><a href="mailto:${esc(c.c1email||c.email)}">${esc(c.c1email||c.email||'—')}</a></dd>
+        </dl>
+        <div class="sec">Secondary contact</div>
+        <dl class="kv">
+          <dt>Name</dt><dd>${esc(c.c2name||'—')}</dd>
+          <dt>Mobile</dt><dd>${c.c2phone?`<a href="tel:${esc(c.c2phone)}">${esc(c.c2phone)}</a>`:'—'}</dd>
+          <dt>Email</dt><dd>${c.c2email?`<a href="mailto:${esc(c.c2email)}">${esc(c.c2email)}</a>`:'—'}</dd>
         </dl>
         <div class="sec">Sites (${sitesC.length})</div>
         ${sitesC.map(s=>`<div class="row clk" onclick="app.openSite('${s.id}')">
@@ -1069,12 +1078,22 @@ function clientFormModal(existingId){
     <div class="mbd">
       <div class="form-grid single"><div class="field"><label>Company name *</label><input class="input" id="cf_name" value="${esc(c?.name||'')}"></div></div>
       <div class="form-grid single"><div class="field"><label>Legal name</label><input class="input" id="cf_legal" value="${esc(c?.legal||'')}"></div></div>
-      <div class="form-grid">
-        <div class="field"><label>Contact person *</label><input class="input" id="cf_contact" value="${esc(c?.contact||'')}"></div>
-        <div class="field"><label>Phone *</label><input class="input" id="cf_phone" value="${esc(c?.phone||'')}"></div>
-      </div>
-      <div class="form-grid single"><div class="field"><label>Email</label><input class="input" type="email" id="cf_email" value="${esc(c?.email||'')}"></div></div>
       <div class="form-grid single"><div class="field"><label>Address</label><textarea class="input" id="cf_address">${esc(c?.address||'')}</textarea></div></div>
+
+      <div class="sec" style="margin-top:16px">Primary contact *</div>
+      <div class="form-grid">
+        <div class="field"><label>Full name *</label><input class="input" id="cf_c1name" placeholder="e.g. Jane Smith" value="${esc(c?.c1name||'')}"></div>
+        <div class="field"><label>Mobile *</label><input class="input" type="tel" id="cf_c1phone" placeholder="e.g. 0412 345 678" value="${esc(c?.c1phone||c?.phone||'')}"></div>
+      </div>
+      <div class="form-grid single"><div class="field"><label>Email *</label><input class="input" type="email" id="cf_c1email" placeholder="e.g. jane@company.com" value="${esc(c?.c1email||c?.email||'')}"></div></div>
+
+      <div class="sec" style="margin-top:16px">Secondary contact *</div>
+      <div class="form-grid">
+        <div class="field"><label>Full name *</label><input class="input" id="cf_c2name" placeholder="e.g. John Lee" value="${esc(c?.c2name||'')}"></div>
+        <div class="field"><label>Mobile *</label><input class="input" type="tel" id="cf_c2phone" placeholder="e.g. 0498 765 432" value="${esc(c?.c2phone||'')}"></div>
+      </div>
+      <div class="form-grid single"><div class="field"><label>Email *</label><input class="input" type="email" id="cf_c2email" placeholder="e.g. john@company.com" value="${esc(c?.c2email||'')}"></div></div>
+
       <div class="form-actions">
         <button class="btn" onclick="app.close()">Cancel</button>
         <button class="btn primary" onclick="app.saveClient('${existingId||''}')">Save client</button>
@@ -1324,13 +1343,25 @@ const app = {
   editClient(id){ S.modal=clientFormModal(id); render(); },
   saveClient(id){
     const name=el('cf_name')?.value.trim();
-    if(!name){ toast('Company name is required.'); return; }
+    const c1name=el('cf_c1name')?.value.trim();
+    const c1phone=el('cf_c1phone')?.value.trim();
+    const c1email=el('cf_c1email')?.value.trim();
+    const c2name=el('cf_c2name')?.value.trim();
+    const c2phone=el('cf_c2phone')?.value.trim();
+    const c2email=el('cf_c2email')?.value.trim();
+    if(!name)    { toast('Company name is required.'); return; }
+    if(!c1name)  { toast('Primary contact name is required.'); return; }
+    if(!c1phone) { toast('Primary contact mobile is required.'); return; }
+    if(!c1email) { toast('Primary contact email is required.'); return; }
+    if(!c2name)  { toast('Secondary contact name is required.'); return; }
+    if(!c2phone) { toast('Secondary contact mobile is required.'); return; }
+    if(!c2email) { toast('Secondary contact email is required.'); return; }
     const data={
       name, legal:el('cf_legal')?.value.trim()||'',
-      contact:el('cf_contact')?.value.trim()||'',
-      phone:el('cf_phone')?.value.trim()||'',
-      email:el('cf_email')?.value.trim()||'',
       address:el('cf_address')?.value.trim()||'',
+      c1name, c1phone, c1email,
+      c2name, c2phone, c2email,
+      contact:c1name, phone:c1phone, email:c1email,
       status:'active',
     };
     if(id){ Store.update('clients',id,data); toast('Client updated.'); }
