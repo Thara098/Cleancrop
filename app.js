@@ -922,7 +922,7 @@ function jobModalFor(jobId){
 function dayModal(y,mo,d){
   return ()=>{
     const date=new Date(y,mo,d);
-    const evts=calEventsForDate(date).sort((a,b)=>a.shift.startTime.localeCompare(b.shift.startTime));
+    const evts=calEventsForDate(date, S.calView).sort((a,b)=>a.shift.startTime.localeCompare(b.shift.startTime));
     return ovl(`
       <div class="mhd"><div>
         <h2 style="margin:0;font-size:19px">${fmtD(date)}</h2>
