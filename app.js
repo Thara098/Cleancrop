@@ -1137,19 +1137,26 @@ function shiftFormModal(existingId, prefillSiteId){
           </select>
         </div>
       </div>
-      <div class="form-grid single"><div class="field"><label>Days of week</label>
-        <div class="day-picker">
-          ${[1,2,3,4,5,6,0].map((d,i)=>`<button type="button" class="day-btn ${selDays.includes(d)?'on':''}" data-day="${d}">${DAY_LABELS[i].slice(0,1)}</button>`).join('')}
-        </div>
-      </div></div>
       <div class="form-grid triple">
         <div class="field"><label>Start time</label><input class="input" type="time" id="shf_start" value="${sh?.startTime||'06:00'}" oninput="calcShiftProfit()"></div>
         <div class="field"><label>End time</label><input class="input" type="time" id="shf_end" value="${sh?.endTime||'09:00'}" oninput="calcShiftProfit()"></div>
         <div class="field"><label>Type</label>
-          <select class="input" id="shf_type">
+          <select class="input" id="shf_type" onchange="app.toggleShiftType()">
             <option value="recurring" ${sh?.type!=='oneoff'?'selected':''}>Recurring</option>
             <option value="oneoff" ${sh?.type==='oneoff'?'selected':''}>One-off</option>
           </select>
+        </div>
+      </div>
+      <div id="shf_days_row" style="display:${sh?.type==='oneoff'?'none':'block'}">
+        <div class="field" style="margin-bottom:14px"><label>Days of week</label>
+          <div class="day-picker">
+            ${[1,2,3,4,5,6,0].map((d,i)=>`<button type="button" class="day-btn ${selDays.includes(d)?'on':''}" data-day="${d}">${DAY_LABELS[i].slice(0,1)}</button>`).join('')}
+          </div>
+        </div>
+      </div>
+      <div id="shf_date_row" style="display:${sh?.type==='oneoff'?'block':'none'}">
+        <div class="field" style="margin-bottom:14px"><label>Job date *</label>
+          <input class="input" type="date" id="shf_date" value="${sh?.date||toDateStr(NOW)}">
         </div>
       </div>
       <div class="form-grid">
@@ -1279,6 +1286,12 @@ const app = {
   setRole(r){ S.role=r; if(r==='field'){ S.view='field'; } else { S.view='dashboard'; } render(); },
   setFieldEmp(id){ S.fieldEmp=id; render(); },
   setCalView(v){ S.calView=v; render(); },
+  toggleShiftType(){
+    const isOneOff = el('shf_type')?.value==='oneoff';
+    const dr=el('shf_days_row'), dtr=el('shf_date_row');
+    if(dr)  dr.style.display  = isOneOff ? 'none'  : 'block';
+    if(dtr) dtr.style.display = isOneOff ? 'block' : 'none';
+  },
   calNav(d){ S.calMonth=new Date(S.calMonth.getFullYear(), S.calMonth.getMonth()+d, 1); render(); },
   calToday(){ S.calMonth=new Date(NOW.getFullYear(),NOW.getMonth(),1); render(); },
   payNav(d){ S.payMonth=new Date(S.payMonth.getFullYear(), S.payMonth.getMonth()+d, 1); render(); },
@@ -1352,10 +1365,13 @@ const app = {
     const days=[...document.querySelectorAll('.day-btn.on')].map(b=>parseInt(b.dataset.day));
     const scopeRaw=el('shf_scope')?.value||'';
     const scope=scopeRaw.split('\n').map(s=>s.trim()).filter(Boolean);
+    const type=el('shf_type')?.value||'recurring';
     const data={
       name, siteId:el('shf_site')?.value||'',
-      type:el('shf_type')?.value||'recurring',
-      days, startTime:el('shf_start')?.value||'06:00',
+      type,
+      days: type==='oneoff' ? [] : days,
+      date: type==='oneoff' ? (el('shf_date')?.value||toDateStr(NOW)) : null,
+      startTime:el('shf_start')?.value||'06:00',
       endTime:el('shf_end')?.value||'09:00',
       chargeRate:parseFloat(el('shf_charge')?.value)||0,
       payRate:parseFloat(el('shf_pay')?.value)||0,
