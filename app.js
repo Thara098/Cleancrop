@@ -181,9 +181,16 @@ function getOrCreateJob(shiftId, ds){
       completedAt: null,
       scope: (sh.scope||[]).map(t=>({id:uid(),text:t,done:false})),
       photos: [],
+      receipts: [],
       feedback: null,
       cover: null,
       notes: '',
+      numPeople: '',
+      inductionDone: false,
+      clockIn: '',
+      breakStart: '',
+      breakEnd: '',
+      clockOut: '',
     };
     Store.add('jobs', j);
   }
@@ -876,27 +883,62 @@ function jobModalFor(jobId){
         <button class="x" onclick="app.close()">×</button>
       </div>
       <div class="mbd">
+
+        <div class="sec" style="margin-top:0">Job details</div>
         <dl class="kv">
-          <dt>Client</dt><dd>${esc(clientOf(site.id)?.name||'—')}</dd>
+          <dt>Company</dt><dd><b>${esc(clientOf(site.id)?.name||'—')}</b></dd>
+          <dt>Address</dt><dd>${esc(site.address||'—')}</dd>
+          <dt>Scheduled</dt><dd>${fmtT(sh.startTime)} – ${fmtT(sh.endTime)} · ${timeDiffHrs(sh.startTime,sh.endTime)}h</dd>
           <dt>Worker</dt><dd>${esc(emp.name)}</dd>
-          <dt>Time</dt><dd>${fmtT(sh.startTime)}–${fmtT(sh.endTime)} · ${timeDiffHrs(sh.startTime,sh.endTime)}h</dd>
-          <dt>Pricing</dt><dd>Client $${sh.chargeRate}/h · cost $${sh.payRate}/h · <b>profit $${(sh.chargeRate-sh.payRate)*timeDiffHrs(sh.startTime,sh.endTime)}/shift</b></dd>
+          ${S.role==='manager'?`<dt>Pricing</dt><dd>$${sh.chargeRate}/h charge · $${sh.payRate}/h cost</dd>`:''}
         </dl>
-        ${j.notes?`<div class="note" style="margin-top:12px">📝 ${esc(j.notes)}</div>`:''}
-        <div class="sec">Scope — ${done}/${j.scope.length}</div>
+
+        <div class="sec">Number of people on site</div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <input class="input" type="number" min="1" id="jf_people" placeholder="e.g. 2" value="${esc(j.numPeople||'')}" style="max-width:120px">
+          <button class="btn sm" onclick="app.saveJobField('${j.id}','numPeople',el('jf_people').value)">Save</button>
+        </div>
+
+        <div class="sec">Induction</div>
+        <label class="chk-row" style="margin-bottom:14px">
+          <input type="checkbox" ${j.inductionDone?'checked':''} onchange="app.saveJobField('${j.id}','inductionDone',this.checked)">
+          <span>Site induction completed</span>
+        </label>
+
+        <div class="sec">Time &amp; breaks</div>
+        <div class="form-grid" style="margin-bottom:8px">
+          <div class="field"><label>Clock in</label><input class="input" type="time" id="jf_clockin" value="${j.clockIn||''}" onchange="app.saveJobField('${j.id}','clockIn',this.value)"></div>
+          <div class="field"><label>Clock out</label><input class="input" type="time" id="jf_clockout" value="${j.clockOut||''}" onchange="app.saveJobField('${j.id}','clockOut',this.value)"></div>
+        </div>
+        <div class="form-grid" style="margin-bottom:14px">
+          <div class="field"><label>Break start</label><input class="input" type="time" id="jf_bstart" value="${j.breakStart||''}" onchange="app.saveJobField('${j.id}','breakStart',this.value)"></div>
+          <div class="field"><label>Break end</label><input class="input" type="time" id="jf_bend" value="${j.breakEnd||''}" onchange="app.saveJobField('${j.id}','breakEnd',this.value)"></div>
+        </div>
+
+        <div class="sec">Job description / scope — ${done}/${j.scope.length}</div>
         ${j.scope.map(sc=>`
           <div class="scope-item ${sc.done?'done':''}">
             <div class="chk ${sc.done?'on':''}" onclick="app.toggleScope('${j.id}','${sc.id}')">${sc.done?'✓':''}</div>
             <span class="txt">${esc(sc.text)}</span>
           </div>`).join('')}
+        ${j.notes?`<div class="note" style="margin-top:10px">📝 ${esc(j.notes)}</div>`:''}
+
         <div class="sec">Photos${!j.photos.some(p=>p.type==='after')&&st==='completed'?' <span class="badge b-amber">missing after photo</span>':''}</div>
-        <div class="photos">${j.photos.length===0?'<div class="muted" style="font-size:13px">No photos uploaded yet.</div>':''}
+        <div class="photos">${j.photos.length===0?'<div class="muted" style="font-size:13px;margin-bottom:8px">No photos yet.</div>':''}
           ${j.photos.map(p=>`<div class="photo"><img src="${p.url}" alt=""><div class="cap"><span class="${p.type==='before'?'ph-before':'ph-after'}">${p.type==='before'?'Before':'After'}</span><span>${p.ts}</span></div></div>`).join('')}
         </div>
-        <div style="display:flex;gap:8px;margin-top:10px">
+        <div style="display:flex;gap:8px;margin-top:8px">
           <label class="uploader" style="flex:1">＋ Before photo<input type="file" accept="image/*" onchange="app.onPhoto(event,'before','${j.id}')"></label>
           <label class="uploader" style="flex:1">＋ After photo<input type="file" accept="image/*" onchange="app.onPhoto(event,'after','${j.id}')"></label>
         </div>
+
+        <div class="sec">Consumer goods receipts</div>
+        <div style="margin-bottom:8px">
+          ${(j.receipts||[]).length===0?'<div class="muted" style="font-size:13px;margin-bottom:8px">No receipts uploaded yet.</div>':''}
+          ${(j.receipts||[]).map(r=>`<div class="row"><span class="badge b-blue">🧾</span><div class="grow"><div class="t">${esc(r.name)}</div><div class="s">${r.ts}</div></div></div>`).join('')}
+        </div>
+        <label class="uploader">＋ Upload receipt<input type="file" accept="image/*,.pdf" onchange="app.onReceipt(event,'${j.id}')"></label>
+
         ${j.feedback?`
           <div class="sec">Client feedback</div>
           <div class="card" style="margin-bottom:0"><div class="bd">
@@ -911,6 +953,7 @@ function jobModalFor(jobId){
             <div class="field" style="flex:1"><label>Comment</label><input class="input" id="fbComment" placeholder="e.g. Very thorough, thank you."></div>
             <button class="btn primary" onclick="app.addFeedback('${j.id}')">Submit</button>
           </div>`:'') }
+
         <div class="sec">Actions</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           ${st==='scheduled'?`<button class="btn primary" onclick="app.startJob('${j.id}')">▶ Start job</button>`:''}
@@ -1580,6 +1623,10 @@ const app = {
     Store.update('jobs',jobId,{feedback:{rating:r,comment:c,ts:new Date().toISOString()}});
     toast('Feedback saved!'); S.modal=jobModalFor(jobId); render();
   },
+  saveJobField(jobId, field, value){
+    Store.update('jobs', jobId, {[field]: value});
+    S.modal=jobModalFor(jobId); render();
+  },
   onPhoto(event, type, jobId){
     const file=event.target.files[0]; if(!file) return;
     const reader=new FileReader();
@@ -1591,6 +1638,14 @@ const app = {
       S.modal=jobModalFor(jobId); render();
     };
     reader.readAsDataURL(file);
+  },
+  onReceipt(event, jobId){
+    const file=event.target.files[0]; if(!file) return;
+    const j=getJob(jobId); if(!j) return;
+    const receipts=[...(j.receipts||[]),{name:file.name, ts:new Date().toLocaleTimeString()}];
+    Store.update('jobs',jobId,{receipts});
+    toast('Receipt uploaded: '+file.name);
+    S.modal=jobModalFor(jobId); render();
   },
 
   // ── Sick leave ──
