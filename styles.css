@@ -145,6 +145,10 @@ tr.clk:hover td{background:#f8fafc;}
 /* ── Tag ── */
 .tag{display:inline-block;background:#e0e7ff;color:#3730a3;border-radius:4px;padding:1px 6px;font-size:11.5px;font-weight:600;}
 
+/* ── Calendar view switcher ── */
+.cal-view-sel{padding:5px 10px;border:1.5px solid var(--brand);border-radius:7px;font-size:13px;font-weight:600;font-family:inherit;color:var(--brand);background:#fff;outline:none;cursor:pointer;}
+.cal-view-sel:focus{box-shadow:0 0 0 3px rgba(13,148,136,.12);}
+
 /* ── Calendar ── */
 .cal{display:grid;grid-template-columns:repeat(7,1fr);border-top:1px solid var(--border);border-left:1px solid var(--border);}
 .dow{text-align:center;padding:7px 4px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted-c);background:var(--slatebg);border-right:1px solid var(--border);border-bottom:1px solid var(--border);}

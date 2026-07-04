@@ -131,6 +131,7 @@ const S = {
   view:      'dashboard',
   role:      'manager',
   fieldEmp:  'e1',
+  calView:   'regular',
   calMonth:  new Date(NOW.getFullYear(), NOW.getMonth(), 1),
   payMonth:  new Date(NOW.getFullYear(), NOW.getMonth(), 1),
   invMonth:  new Date(NOW.getFullYear(), NOW.getMonth(), 1),
@@ -151,11 +152,13 @@ const clientOf    = siteId => { const s=getSite(siteId); return s?getClient(s.cl
 function shiftsForSite(siteId){ return db.shifts.filter(s=>s.siteId===siteId); }
 function shiftsForEmp(empId)  { return db.shifts.filter(s=>s.assignedTo===empId); }
 
-function calEventsForDate(date){
+function calEventsForDate(date, calView='all'){
   const dow = date.getDay();
   const ds  = toDateStr(date);
   return db.shifts
     .filter(s=>s.status==='active')
+    .filter(s=> calView==='regular' ? s.type==='recurring' :
+                calView==='adhoc'   ? s.type==='oneoff'    : true)
     .filter(s=> s.type==='recurring' ? s.days.includes(dow) : s.date===ds)
     .map(s=>{
       const job = db.jobs.find(j=>j.shiftId===s.id && j.date===ds);
@@ -408,7 +411,7 @@ function calendar(){
     const cd   = addDays(grid,i);
     const other= cd.getMonth()!==m.getMonth();
     const isToday = sameDay(cd,NOW);
-    const evts = calEventsForDate(cd);
+    const evts = calEventsForDate(cd, S.calView);
     const chips= evts.slice(0,3).map(({shift,job})=>{
       const emp=getEmployee(shift.assignedTo);
       if(!emp) return '';
@@ -426,9 +429,22 @@ function calendar(){
 
   const legend = db.employees.map(e=>`<span class="cal-chip" style="width:auto;display:inline-flex"><span class="cd" style="background:${e.color}"></span>${esc(e.name.split(' ')[0])}</span>`).join('');
 
+  const calViewLabel = S.calView==='regular'
+    ? 'Regular Calendar – Recurring Ongoing'
+    : 'Ad Hoc Calendar – One-off Jobs';
+  const calSubtitle = S.calView==='regular'
+    ? 'Showing recurring shifts · click any day to open · colour = assigned worker'
+    : 'Showing one-off jobs · click any day to open · colour = assigned worker';
+
   return `
   <div class="calhead no-print">
-    <h1 class="page-title" style="margin:0">Schedule calendar</h1>
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <h1 class="page-title" style="margin:0">${calViewLabel}</h1>
+      <select class="cal-view-sel" onchange="app.setCalView(this.value)">
+        <option value="regular" ${S.calView==='regular'?'selected':''}>Regular – Recurring Ongoing</option>
+        <option value="adhoc"   ${S.calView==='adhoc'  ?'selected':''}>Ad Hoc – One-off Jobs</option>
+      </select>
+    </div>
     <div class="spacer"></div>
     <div class="seg no-print">
       <button onclick="app.calNav(-1)">‹</button>
@@ -438,7 +454,7 @@ function calendar(){
     <button class="btn no-print" onclick="app.calToday()">Today</button>
     <button class="btn primary no-print" onclick="app.newShift()">+ Shift</button>
   </div>
-  <p class="page-sub">Click any day to see its shifts · colour = assigned worker · dot colour = job status</p>
+  <p class="page-sub">${calSubtitle}</p>
   <div class="card">
     <div class="bd" style="padding:0">
       <div class="cal">
@@ -1262,6 +1278,7 @@ const app = {
   close(){ S.modal=null; render(); },
   setRole(r){ S.role=r; if(r==='field'){ S.view='field'; } else { S.view='dashboard'; } render(); },
   setFieldEmp(id){ S.fieldEmp=id; render(); },
+  setCalView(v){ S.calView=v; render(); },
   calNav(d){ S.calMonth=new Date(S.calMonth.getFullYear(), S.calMonth.getMonth()+d, 1); render(); },
   calToday(){ S.calMonth=new Date(NOW.getFullYear(),NOW.getMonth(),1); render(); },
   payNav(d){ S.payMonth=new Date(S.payMonth.getFullYear(), S.payMonth.getMonth()+d, 1); render(); },
