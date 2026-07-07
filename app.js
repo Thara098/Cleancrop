@@ -1479,6 +1479,9 @@ function employeeFormModal(existingId){
             ${['Full time','Part time','Casual','Contractor'].map(t=>`<option ${(e?.empType||'Casual')===t?'selected':''}>${t}</option>`).join('')}
           </select>
         </div>
+        <div class="field"><label>Position</label><input class="input" id="ef_position" placeholder="e.g. Cleaner, Supervisor" value="${esc(e?.position||'')}"></div>
+      </div>
+      <div class="form-grid">
         <div class="field"><label>Pay rate ($/h) *</label><input class="input" type="number" id="ef_pay" value="${e?.payRate||''}"></div>
         <div class="field"><label>Super eligible</label>
           <select class="input" id="ef_supereligible">
@@ -1847,6 +1850,7 @@ const app = {
       phone:el('ef_phone')?.value.trim()||'',
       email:el('ef_email')?.value.trim()||'',
       empType:el('ef_emptype')?.value||'Casual',
+      position:el('ef_position')?.value.trim()||'',
       abn:el('ef_abn')?.value.trim()||'',
       payRate:parseFloat(el('ef_pay')?.value)||0,
       superEligible: el('ef_supereligible')?.value !== 'no',
