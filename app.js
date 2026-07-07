@@ -1563,6 +1563,16 @@ function employeeFormModal(existingId){
         </div>`:'<div class="muted" style="font-size:12px;margin-top:6px">No attachments yet.</div>'}
       </div>
 
+      <div class="sec">Account Details</div>
+      <div class="form-grid">
+        <div class="field"><label>Bank name</label><input class="input" id="ef_bankname" placeholder="e.g. Commonwealth Bank" value="${esc(e?.bankName||'')}"></div>
+        <div class="field"><label>Name on account</label><input class="input" id="ef_bankacctname" placeholder="Full name as on account" value="${esc(e?.bankAcctName||'')}"></div>
+      </div>
+      <div class="form-grid">
+        <div class="field"><label>BSB</label><input class="input" id="ef_bsb" placeholder="e.g. 062-000" maxlength="7" value="${esc(e?.bsb||'')}"></div>
+        <div class="field"><label>Account number</label><input class="input" id="ef_acctno" placeholder="e.g. 12345678" value="${esc(e?.acctNo||'')}"></div>
+      </div>
+
       <div class="sec">Special notes</div>
       <div class="form-grid single">
         <div class="field"><textarea class="input" id="ef_notes" placeholder="Any additional notes…" style="min-height:80px">${esc(e?.notes||'')}</textarea></div>
@@ -1844,6 +1854,10 @@ const app = {
       policeCheck:el('ef_police')?.checked||false, policeRef:el('ef_police_ref')?.value.trim()||'',
       whiteCard:el('ef_wcard')?.checked||false,    whiteCardRef:el('ef_wcard_ref')?.value.trim()||'',
       wwcCheck:el('ef_wwc')?.checked||false,       wwcRef:el('ef_wwc_ref')?.value.trim()||'',
+      bankName:el('ef_bankname')?.value.trim()||'',
+      bankAcctName:el('ef_bankacctname')?.value.trim()||'',
+      bsb:el('ef_bsb')?.value.trim()||'',
+      acctNo:el('ef_acctno')?.value.trim()||'',
       notes:el('ef_notes')?.value.trim()||'',
       color: colorFor(name),
       docs:[],
