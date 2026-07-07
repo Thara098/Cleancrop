@@ -648,33 +648,30 @@ function payrollCalc(e, yr, mo){
     return null;
   }
 
-  // Build site breakdown from ALL active assigned shifts (1–25 of the month)
-  const bySite = {};
-  shiftsForEmp(e.id).filter(s=>s.status==='active').forEach(s=>{
-    const site = getSite(s.siteId);
-    if(!site) return;
-    const shiftHrs = timeDiffHrs(s.startTime, s.endTime);
-    let shiftDays = 0;
-    for(let dd=1; dd<=25; dd++){
-      const dt = new Date(yr, mo, dd);
-      if(dt.getMonth()!==mo) break;
-      if(s.days && s.days.includes(dt.getDay())) shiftDays++;
-    }
-    const schedHrs = shiftHrs * shiftDays;
-    if(!bySite[site.id]) bySite[site.id]={site, shift:s, schedHrs:0, actualHrs:0, hasActual:false, jobsDone:0, jobsTotal:shiftDays};
-    bySite[site.id].schedHrs += schedHrs;
+  // Only count completed jobs in the billing period
+  const completedJobs = db.jobs.filter(j=>
+    j.assignedTo===e.id &&
+    j.date>=periodStart && j.date<=periodEnd &&
+    j.status==='completed'
+  );
 
-    // overlay actual hours from completed jobs in the period
-    const periodJobs = db.jobs.filter(j=>j.shiftId===s.id && j.date>=periodStart && j.date<=periodEnd);
-    periodJobs.forEach(j=>{
-      const a = jobActualHrs(j);
-      if(a!==null){ bySite[site.id].actualHrs+=a; bySite[site.id].hasActual=true; }
-      if(j.status==='completed') bySite[site.id].jobsDone++;
-    });
+  const bySite = {};
+  completedJobs.forEach(j=>{
+    const sh = getShift(j.shiftId), site = getSite(j.siteId);
+    if(!sh||!site) return;
+    const shiftHrs = timeDiffHrs(sh.startTime, sh.endTime);
+    const actual = jobActualHrs(j);
+    const hrs = actual !== null ? actual : shiftHrs;
+    if(!bySite[site.id]) bySite[site.id]={site, shift:sh, schedHrs:0, actualHrs:0, hasActual:false, jobsDone:0, jobsTotal:0};
+    bySite[site.id].schedHrs += shiftHrs;
+    bySite[site.id].actualHrs += hrs;
+    if(actual!==null) bySite[site.id].hasActual=true;
+    bySite[site.id].jobsDone++;
+    bySite[site.id].jobsTotal++;
   });
 
-  const totalSchedHrs = Object.values(bySite).reduce((sum,v)=>sum+v.schedHrs, 0);
-  const totalActualHrs = Object.values(bySite).filter(v=>v.hasActual).reduce((sum,v)=>sum+v.actualHrs, 0);
+  const totalSchedHrs  = Object.values(bySite).reduce((sum,v)=>sum+v.schedHrs, 0);
+  const totalActualHrs = Object.values(bySite).reduce((sum,v)=>sum+v.actualHrs, 0);
   const billedHrs = totalActualHrs || totalSchedHrs;
   const gross     = billedHrs * (e.payRate||0);
   const superAmt  = gross * SUPER; // always 11.5% on base pay
