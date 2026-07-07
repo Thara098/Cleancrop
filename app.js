@@ -674,7 +674,7 @@ function payrollCalc(e, yr, mo){
   const totalActualHrs = Object.values(bySite).reduce((sum,v)=>sum+v.actualHrs, 0);
   const billedHrs = totalActualHrs || totalSchedHrs;
   const gross     = billedHrs * (e.payRate||0);
-  const superAmt  = gross * SUPER; // always 11.5% on base pay
+  const superAmt  = e.superEligible !== false ? gross * SUPER : 0;
   const total     = gross + superAmt;
   const inv       = db.empinvoices.find(i=>i.empId===e.id && i.month===monthStr) || {status:'pending',invoiceFile:'',invoiceAmount:''};
 
@@ -785,7 +785,7 @@ function empInvoiceModal(empId, yr, mo){
         <div class="kpi"><div class="lbl">Billed hours</div><div class="val">${billedHrs.toFixed(1)}h</div></div>
         <div class="kpi"><div class="lbl">Pay rate</div><div class="val">$${e.payRate}/h</div></div>
         <div class="kpi"><div class="lbl">Gross pay</div><div class="val">${money(gross)}</div></div>
-        <div class="kpi"><div class="lbl">Super (11.5% of base)</div><div class="val">${money(superAmt)}</div></div>
+        <div class="kpi"><div class="lbl">Super (11.5% of base)</div><div class="val">${e.superEligible!==false ? money(superAmt) : '<span style="color:var(--muted-c);font-size:13px">Not eligible</span>'}</div></div>
         <div class="kpi" style="grid-column:span 2;border-color:var(--brand)"><div class="lbl">System total payable</div><div class="val" style="color:var(--brand);font-size:26px">${money(total)}</div></div>
       </div>
 
@@ -1275,7 +1275,7 @@ function employeeDetailModal(eid){
       <div class="mbd">
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
           ${e.status==='sick'?'<span class="badge b-purple"><span class="dot"></span>Sick leave</span>':e.status==='inactive'?'<span class="badge b-slate"><span class="dot"></span>Inactive</span>':'<span class="badge b-green"><span class="dot"></span>Active</span>'}
-          <span class="badge b-slate">$${e.payRate}/h · +11.5% super</span>
+          <span class="badge b-slate">$${e.payRate}/h${e.superEligible!==false?' · +11.5% super':''}</span>
         </div>
         <dl class="kv">
           <dt>Phone</dt><dd>${e.phone?`<a href="tel:${esc(e.phone)}">${esc(e.phone)}</a>`:'—'}</dd>
@@ -1480,6 +1480,12 @@ function employeeFormModal(existingId){
           </select>
         </div>
         <div class="field"><label>Pay rate ($/h) *</label><input class="input" type="number" id="ef_pay" value="${e?.payRate||''}"></div>
+        <div class="field"><label>Super eligible</label>
+          <select class="input" id="ef_supereligible">
+            <option value="yes" ${(e?.superEligible!==false)?'selected':''}>Yes — 11.5% super on top</option>
+            <option value="no" ${e?.superEligible===false?'selected':''}>No — pay rate only</option>
+          </select>
+        </div>
       </div>
       <div class="form-grid">
         <div class="field">
@@ -1843,6 +1849,7 @@ const app = {
       empType:el('ef_emptype')?.value||'Casual',
       abn:el('ef_abn')?.value.trim()||'',
       payRate:parseFloat(el('ef_pay')?.value)||0,
+      superEligible: el('ef_supereligible')?.value !== 'no',
       skills:el('ef_skills')?.value||'',
       status:el('ef_status')?.value||'active',
       since:el('ef_since')?.value.trim()||'',
