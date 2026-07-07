@@ -1,7 +1,13 @@
 /* ============================================================
    CleanCops — full prototype
-   Storage: localStorage (prefix "cc_")
+   Storage: Supabase (PostgreSQL + Storage)
    ============================================================ */
+
+// ─── SUPABASE CONFIG ─────────────────────────────────────────────────────────
+// Paste your Supabase project URL and anon key here (supabase.com → project settings → API)
+const SUPABASE_URL = 'https://qghddefdefzwvmonwqij.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_eu3hml1YME-ttmUUsBJd4A_XURyJZap';
+const _sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // ─── 1. CONFIG & HELPERS ──────────────────────────────────────────────────────
 
@@ -41,9 +47,11 @@ function fmtT(timeStr){
   return hh+(m?':'+pad(m):'')+ap;
 }
 function timeDiffHrs(t1,t2){
-  const[h1,m1]=t1.split(':').map(Number);
-  const[h2,m2]=t2.split(':').map(Number);
-  return Math.round(((h2*60+m2)-(h1*60+m1))/60*10)/10;
+  const[h1,m1]=(t1||'0:00').split(':').map(Number);
+  const[h2,m2]=(t2||'0:00').split(':').map(Number);
+  let mins=(h2*60+m2)-(h1*60+m1);
+  if(mins<0) mins+=24*60; // handle overnight shifts
+  return Math.round(mins/60*10)/10;
 }
 function colorFor(name){ let h=0; for(const c of String(name)) h=(h+c.charCodeAt(0))%COLORS.length; return COLORS[h]; }
 function initials(name){ return String(name).split(' ').map(p=>p[0]).join('').slice(0,2).toUpperCase(); }
@@ -65,66 +73,48 @@ function sbadge(status){
 
 // ─── 2. STORAGE ───────────────────────────────────────────────────────────────
 
+async function sbUpload(path, file){
+  const {error} = await _sb.storage.from('uploads').upload(path, file, {upsert:true});
+  if(error) throw error;
+  const {data} = _sb.storage.from('uploads').getPublicUrl(path);
+  return data.publicUrl;
+}
+
 const Store = {
-  get(k){ try{ return JSON.parse(localStorage.getItem('cc_'+k)); }catch{ return null; } },
-  set(k,v){ localStorage.setItem('cc_'+k, JSON.stringify(v)); },
-  load(k,seed){ const v=this.get(k); if(v==null){ this.set(k,seed); return seed; } return v; },
-  all(k){ return this.get(k)||[]; },
-  save(k,arr){ this.set(k,arr); db[k]=arr; },
-  add(k,item){ const a=this.all(k); a.push(item); this.save(k,a); return item; },
-  update(k,id,patch){
-    const a=this.all(k).map(x=>x.id===id?{...x,...patch}:x);
-    this.save(k,a); return a.find(x=>x.id===id);
+  all(k){ return db[k]||[]; },
+  save(k, arr){
+    db[k] = arr;
+    _sb.from(k).upsert(arr).then(({error})=>{ if(error) console.error('save',k,error); });
   },
-  remove(k,id){ this.save(k,this.all(k).filter(x=>x.id!==id)); },
+  add(k, item){
+    if(!db[k]) db[k]=[];
+    db[k].push(item);
+    _sb.from(k).insert(item).then(({error})=>{ if(error) console.error('add',k,error); });
+    return item;
+  },
+  update(k, id, patch){
+    db[k] = (db[k]||[]).map(x=>x.id===id?{...x,...patch}:x);
+    _sb.from(k).update(patch).eq('id',id).then(({error})=>{ if(error) console.error('update',k,error); });
+    return db[k].find(x=>x.id===id);
+  },
+  remove(k, id){
+    db[k] = (db[k]||[]).filter(x=>x.id!==id);
+    _sb.from(k).delete().eq('id',id).then(({error})=>{ if(error) console.error('remove',k,error); });
+  },
 };
 
-// ─── 3. SEED DATA ─────────────────────────────────────────────────────────────
-
-const SEED_CLIENTS=[
-  {id:'c1',name:'Northgate Health',legal:'Northgate Medical Centre Pty Ltd',contact:'Dr. Sarah Reed',phone:'02 9555 1001',email:'admin@northgate.com.au',address:'12 Northgate Rd, Eastwood NSW 2122',status:'active',since:'2024-04'},
-  {id:'c2',name:'Atlas Property Group',legal:'Atlas Property Group Ltd',contact:'Jane Liu',phone:'02 9555 2002',email:'j.liu@atlasproperty.com.au',address:'88 George St, Sydney NSW 2000',status:'active',since:'2023-12'},
-  {id:'c3',name:'Riverside School District',legal:'Riverside School District',contact:'Mr. Patel',phone:'02 9555 3003',email:'facilities@riverside.edu.au',address:'5 River Ln, Riverside NSW 2132',status:'active',since:'2024-08'},
-  {id:'c4',name:'Harbourview Hospitality',legal:'Harbourview Hotel Pty Ltd',contact:'Sofia Rossi',phone:'02 9555 4004',email:'s.rossi@harbourview.com.au',address:'1 Marine Pde, Sydney NSW 2000',status:'active',since:'2023-07'},
-];
-
-const SEED_SITES=[
-  {id:'si1',clientId:'c1',name:'Northgate Medical Centre',address:'12 Northgate Rd, Eastwood NSW 2122',billing:'Fixed monthly',budget:7500,chargeRate:58,payRate:34,supervisor:'e1',status:'active',contractStart:'2024-04-01',hue:200},
-  {id:'si2',clientId:'c2',name:'Atlas Office Tower',address:'88 George St, Sydney NSW 2000',billing:'Fixed monthly',budget:6200,chargeRate:52,payRate:32,supervisor:'e2',status:'active',contractStart:'2023-12-01',hue:215},
-  {id:'si3',clientId:'c3',name:'Riverside Primary School',address:'5 River Ln, Riverside NSW 2132',billing:'Hourly',budget:3600,chargeRate:48,payRate:33,supervisor:'e3',status:'active',contractStart:'2024-08-15',hue:140},
-  {id:'si4',clientId:'c4',name:'Harbourview Hotel',address:'1 Marine Pde, Sydney NSW 2000',billing:'Fixed monthly',budget:5200,chargeRate:60,payRate:35,supervisor:'e1',status:'active',contractStart:'2023-07-01',hue:30},
-  {id:'si5',clientId:'c2',name:'Westfield Retail Park',address:'200 Mall Way, Westend NSW 2145',billing:'Hourly',budget:4400,chargeRate:50,payRate:32,supervisor:'e2',status:'active',contractStart:'2024-02-01',hue:280},
-];
-
-const SEED_EMPLOYEES=[
-  {id:'e1',name:'Maria Santos', position:'Lead cleaner',  phone:'0412 555 201',email:'maria@mail.com', payRate:34,status:'active',abn:'53 004 085 616',entity:'Sole trader',color:'#0d9488',since:'2024-03',skills:'Medical, Office',docs:[{name:'ABN registration',expiry:null},{name:'Public liability insurance',expiry:'2026-09-30'},{name:"Driver's licence",expiry:'2027-04-12'}]},
-  {id:'e2',name:'David Chen',   position:'Operative',     phone:'0412 555 202',email:'david@mail.com', payRate:32,status:'active',abn:'12 119 503 220',entity:'Pty Ltd',   color:'#2563eb',since:'2023-11',skills:'Office, Retail',docs:[{name:'ABN registration',expiry:null},{name:'Public liability insurance',expiry:'2026-12-01'}]},
-  {id:'e3',name:'Amara Okafor', position:'Operative',     phone:'0412 555 203',email:'amara@mail.com', payRate:33,status:'active',abn:'88 222 145 901',entity:'Sole trader',color:'#7c3aed',since:'2024-07',skills:'School, Hotel',docs:[{name:'ABN registration',expiry:null},{name:'Public liability insurance',expiry:'2027-01-15'},{name:'Working with Children check',expiry:'2028-02-01'}]},
-  {id:'e4',name:'Liam Murphy',  position:'Senior cleaner',phone:'0412 555 204',email:'liam@mail.com',  payRate:35,status:'sick', abn:'40 763 998 112',entity:'Sole trader',color:'#ea580c',since:'2023-06',skills:'Hotel, Office',docs:[{name:'ABN registration',expiry:null},{name:'Public liability insurance',expiry:'2026-06-30'}]},
-  {id:'e5',name:'Priya Nair',   position:'Operative',     phone:'0412 555 205',email:'priya@mail.com', payRate:31,status:'active',abn:'29 551 600 733',entity:'Sole trader',color:'#db2777',since:'2025-01',skills:'Medical, School',docs:[{name:'ABN registration',expiry:null},{name:'Public liability insurance',expiry:'2027-03-22'}]},
-];
-
-// days: 0=Sun,1=Mon,...,6=Sat (JS convention)
-const SEED_SHIFTS=[
-  {id:'sh1',siteId:'si1',name:'Daily clean — Clinic',       type:'recurring',days:[1,2,3,4,5],startTime:'06:00',endTime:'09:00',chargeRate:58,payRate:34,assignedTo:'e1',status:'active',scope:['Disinfect all surfaces','Mop & sanitise floors','Clean & sanitise restrooms','Restock consumables','Empty clinical waste']},
-  {id:'sh2',siteId:'si2',name:'Morning office clean',        type:'recurring',days:[1,2,3,4,5],startTime:'06:00',endTime:'09:00',chargeRate:52,payRate:32,assignedTo:'e2',status:'active',scope:['Vacuum all floors','Empty bins','Clean kitchen & breakroom','Wipe desks & glass','Restroom service']},
-  {id:'sh3',siteId:'si3',name:'School afternoon clean',      type:'recurring',days:[1,3,5],    startTime:'15:00',endTime:'18:00',chargeRate:48,payRate:33,assignedTo:'e3',status:'active',scope:['Sweep & mop classrooms','Sanitise desks','Clean toilets','Empty bins','Wipe door handles']},
-  {id:'sh4',siteId:'si4',name:'Hotel lobby & restrooms',     type:'recurring',days:[2,4],      startTime:'07:00',endTime:'10:00',chargeRate:60,payRate:35,assignedTo:'e4',status:'active',scope:['Service lobby','Clean public restrooms','Vacuum corridors','Polish lifts','Empty bins']},
-  {id:'sh5',siteId:'si5',name:'Retail park evening clean',   type:'recurring',days:[1,3,5],    startTime:'18:00',endTime:'21:00',chargeRate:50,payRate:32,assignedTo:'e2',status:'active',scope:['Sweep walkways','Clean entrance glass','Empty bins','Sanitise food-court tables','Restroom service']},
-];
-
-// ─── 4. DB (live data) ────────────────────────────────────────────────────────
+// ─── 3. DB (live data) ───────────────────────────────────────────────────────
 
 const db = {};
 function loadDB(){
-  db.clients   = Store.load('clients',   SEED_CLIENTS);
-  db.sites     = Store.load('sites',     SEED_SITES);
-  db.employees = Store.load('employees', SEED_EMPLOYEES);
-  db.shifts    = Store.load('shifts',    SEED_SHIFTS);
-  db.jobs      = Store.load('jobs',      []);        // stored job instances
-  db.invoices    = Store.load('invoices',    []);
-  db.payslips    = Store.load('payslips',    []);
-  db.empinvoices = Store.load('empinvoices', []);
+  if(!db.clients)    db.clients    = [];
+  if(!db.sites)      db.sites      = [];
+  if(!db.employees)  db.employees  = [];
+  if(!db.shifts)     db.shifts     = [];
+  if(!db.jobs)       db.jobs       = [];
+  if(!db.invoices)   db.invoices   = [];
+  if(!db.payslips)   db.payslips   = [];
+  if(!db.empinvoices)db.empinvoices= [];
 }
 
 // ─── 5. STATE ─────────────────────────────────────────────────────────────────
@@ -267,6 +257,9 @@ function render(){
 
 function paintSidebar(auth){
   // role seg
+  // Only managers can see the role toggle
+  const roleSeg = el('roleSeg');
+  if(roleSeg) roleSeg.style.display = auth?.role==='manager' ? '' : 'none';
   document.querySelectorAll('#roleSeg button').forEach(b=>b.classList.toggle('on',b.dataset.role===S.role));
   // field user picker
   const up=el('userPick');
@@ -492,7 +485,7 @@ function jobs(){
   <h1 class="page-title">Jobs / work orders</h1>
   <p class="page-sub">${list.length} of ${db.jobs.length} stored jobs · recurring shifts show on the calendar</p>
   <div class="filters">
-    <input placeholder="🔍 Search…" value="${esc(f.q)}" oninput="app.filter('q',this.value)">
+    <input placeholder="🔍 Search…" id="jobs_search" value="${esc(f.q)}" oninput="app.filterQ(this.value)">
     <select onchange="app.filter('status',this.value)">
       <option value="">All statuses</option>
       ${['scheduled','in_progress','completed','overdue'].map(s=>`<option value="${s}" ${f.status===s?'selected':''}>${s.replace('_',' ')}</option>`).join('')}
@@ -684,7 +677,7 @@ function payrollCalc(e, yr, mo){
   const totalActualHrs = Object.values(bySite).filter(v=>v.hasActual).reduce((sum,v)=>sum+v.actualHrs, 0);
   const billedHrs = totalActualHrs || totalSchedHrs;
   const gross     = billedHrs * (e.payRate||0);
-  const superAmt  = e.superIncluded ? 0 : gross * SUPER;
+  const superAmt  = gross * SUPER; // always 11.5% on base pay
   const total     = gross + superAmt;
   const inv       = db.empinvoices.find(i=>i.empId===e.id && i.month===monthStr) || {status:'pending',invoiceFile:'',invoiceAmount:''};
 
@@ -795,7 +788,7 @@ function empInvoiceModal(empId, yr, mo){
         <div class="kpi"><div class="lbl">Billed hours</div><div class="val">${billedHrs.toFixed(1)}h</div></div>
         <div class="kpi"><div class="lbl">Pay rate</div><div class="val">$${e.payRate}/h</div></div>
         <div class="kpi"><div class="lbl">Gross pay</div><div class="val">${money(gross)}</div></div>
-        <div class="kpi"><div class="lbl">Super (11.5%)</div><div class="val">${e.superIncluded?'<span style="font-size:12px;color:var(--muted-c)">Included in rate</span>':money(superAmt)}</div></div>
+        <div class="kpi"><div class="lbl">Super (11.5% of base)</div><div class="val">${money(superAmt)}</div></div>
         <div class="kpi" style="grid-column:span 2;border-color:var(--brand)"><div class="lbl">System total payable</div><div class="val" style="color:var(--brand);font-size:26px">${money(total)}</div></div>
       </div>
 
@@ -1285,7 +1278,7 @@ function employeeDetailModal(eid){
       <div class="mbd">
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
           ${e.status==='sick'?'<span class="badge b-purple"><span class="dot"></span>Sick leave</span>':e.status==='inactive'?'<span class="badge b-slate"><span class="dot"></span>Inactive</span>':'<span class="badge b-green"><span class="dot"></span>Active</span>'}
-          <span class="badge b-slate">$${e.payRate}/h${e.superIncluded?' · super incl.':''}</span>
+          <span class="badge b-slate">$${e.payRate}/h · +11.5% super</span>
         </div>
         <dl class="kv">
           <dt>Phone</dt><dd>${e.phone?`<a href="tel:${esc(e.phone)}">${esc(e.phone)}</a>`:'—'}</dd>
@@ -1338,7 +1331,7 @@ function clientFormModal(existingId){
       </div>
       <div class="form-grid single"><div class="field"><label>Email *</label><input class="input" type="email" id="cf_c1email" placeholder="e.g. jane@company.com" value="${esc(c?.c1email||c?.email||'')}"></div></div>
 
-      <div class="sec" style="margin-top:16px">Secondary contact *</div>
+      <div class="sec" style="margin-top:16px">Secondary contact (optional)</div>
       <div class="form-grid">
         <div class="field"><label>Full name *</label><input class="input" id="cf_c2name" placeholder="e.g. John Lee" value="${esc(c?.c2name||'')}"></div>
         <div class="field"><label>Mobile *</label><input class="input" type="tel" id="cf_c2phone" placeholder="e.g. 0498 765 432" value="${esc(c?.c2phone||'')}"></div>
@@ -1492,11 +1485,21 @@ function employeeFormModal(existingId){
         <div class="field"><label>Pay rate ($/h) *</label><input class="input" type="number" id="ef_pay" value="${e?.payRate||''}"></div>
       </div>
       <div class="form-grid">
-        <div class="field"><label>ABN</label><input class="input" id="ef_abn" value="${esc(e?.abn||'')}"></div>
-        <div class="field"><label>Started (YYYY-MM)</label><input class="input" id="ef_since" value="${esc(e?.since||'')}"></div>
+        <div class="field">
+          <label>ABN</label>
+          <input class="input" id="ef_abn" placeholder="e.g. 12 345 678 901" value="${esc(e?.abn||'')}" oninput="app.fmtAbn(this)" maxlength="14">
+          <div id="ef_abn_status" style="font-size:12px;margin-top:4px;color:var(--muted-c)">${e?.abnVerified?`<span style="color:var(--green)">✓ Verified</span>`:'Enter 11-digit ABN'}</div>
+          <button type="button" class="btn sm" style="margin-top:6px" onclick="app.verifyAbn()">Verify ABN</button>
+        </div>
+        <div class="field"><label>Started</label><input class="input" type="month" id="ef_since" value="${esc(e?.since||'')}"></div>
       </div>
       <div class="form-grid">
-        <div class="field"><label>Skills / site types</label><input class="input" id="ef_skills" value="${esc(e?.skills||'')}"></div>
+        <div class="field"><label>Skills / site types</label>
+          <select class="input" id="ef_skills">
+            <option value="">Select skill type</option>
+            ${['Cleaning','General Labour','Manager'].map(s=>`<option value="${s}" ${e?.skills===s?'selected':''}>${s}</option>`).join('')}
+          </select>
+        </div>
         <div class="field"><label>Status</label>
           <select class="input" id="ef_status">
             <option value="active" ${e?.status==='active'||!e?'selected':''}>Active</option>
@@ -1528,16 +1531,23 @@ function employeeFormModal(existingId){
       </div>
 
       <div class="sec">Compliance checks</div>
-      <div class="chk-group">
-        ${chk('ef_pli',  'Public liability insurance', e?.pli)}
-        ${chk('ef_police','Police check',              e?.policeCheck)}
-        ${chk('ef_wcard', 'White card',                e?.whiteCard)}
-        ${chk('ef_wwc',   'Working With Children (WWC) check', e?.wwcCheck)}
-      </div>
-
-      <div class="sec">Payroll</div>
-      <div class="chk-group">
-        ${chk('ef_super', 'Superannuation included in pay rate', e?.superIncluded)}
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <label style="display:flex;align-items:center;gap:6px;min-width:220px"><input type="checkbox" id="ef_pli" ${e?.pli?'checked':''}> Public liability insurance</label>
+          <input class="input" id="ef_pli_ref" placeholder="Policy / reference number" value="${esc(e?.pliRef||'')}" style="flex:1;min-width:160px">
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <label style="display:flex;align-items:center;gap:6px;min-width:220px"><input type="checkbox" id="ef_police" ${e?.policeCheck?'checked':''}> Police check</label>
+          <input class="input" id="ef_police_ref" placeholder="Reference number" value="${esc(e?.policeRef||'')}" style="flex:1;min-width:160px">
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <label style="display:flex;align-items:center;gap:6px;min-width:220px"><input type="checkbox" id="ef_wcard" ${e?.whiteCard?'checked':''}> White card</label>
+          <input class="input" id="ef_wcard_ref" placeholder="Card / licence number" value="${esc(e?.whiteCardRef||'')}" style="flex:1;min-width:160px">
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <label style="display:flex;align-items:center;gap:6px;min-width:220px"><input type="checkbox" id="ef_wwc" ${e?.wwcCheck?'checked':''}> Working With Children (WWC) check</label>
+          <input class="input" id="ef_wwc_ref" placeholder="WWC number" value="${esc(e?.wwcRef||'')}" style="flex:1;min-width:160px">
+        </div>
       </div>
 
       <div class="sec">Other attachments</div>
@@ -1636,10 +1646,8 @@ const app = {
 
   downloadEmpInvoice(empId, monthStr){
     const inv = db.empinvoices.find(i=>i.empId===empId && i.month===monthStr);
-    if(!inv?.invoiceFile){ toast('No invoice file uploaded yet.'); return; }
-    // Since files are stored by name only (no binary), show the filename as a toast
-    // In a real server environment this would trigger a file download
-    toast('Invoice file: ' + inv.invoiceFile + ' — open from where it was saved on your device.');
+    if(!inv?.invoiceUrl){ toast('No invoice file uploaded yet.'); return; }
+    window.open(inv.invoiceUrl, '_blank');
   },
 
   openEmpInvoice(empId, yr, mo){ empInvoiceModal(empId, parseInt(yr), parseInt(mo)); },
@@ -1654,16 +1662,22 @@ const app = {
     render();
   },
 
-  uploadEmpInvoice(event, empId, monthStr){
-    const file = event.target.files[0];
-    if(!file) return;
-    let inv = db.empinvoices.find(i=>i.empId===empId && i.month===monthStr);
-    if(!inv){ inv={id:'ei'+Date.now(), empId, month:monthStr, invoiceFile:'', invoiceAmount:'', status:'pending', uploadedAt:''}; db.empinvoices.push(inv); }
-    inv.invoiceFile = file.name;
-    inv.uploadedAt = new Date().toISOString();
-    if(inv.status==='pending') inv.status='submitted';
-    Store.save('empinvoices', db.empinvoices);
-    render();
+  async uploadEmpInvoice(event, empId, monthStr){
+    const file = event.target.files[0]; if(!file) return;
+    toast('Uploading invoice...');
+    try {
+      const url = await sbUpload(`invoices/${empId}/${monthStr}/${file.name}`, file);
+      let inv = db.empinvoices.find(i=>i.empId===empId && i.month===monthStr);
+      if(!inv){
+        inv={id:'ei'+Date.now(), empId, month:monthStr, invoiceFile:'', invoiceUrl:'', invoiceAmount:'', status:'pending', uploadedAt:''};
+        db.empinvoices.push(inv);
+      }
+      inv.invoiceFile = file.name; inv.invoiceUrl = url;
+      inv.uploadedAt = new Date().toISOString();
+      if(inv.status==='pending') inv.status='submitted';
+      Store.save('empinvoices', db.empinvoices);
+      toast('Invoice uploaded: '+file.name); render();
+    } catch(e){ console.error(e); toast('Upload failed — check Storage bucket.'); }
   },
 
   setInvStatus(empId, monthStr, status){
@@ -1675,6 +1689,43 @@ const app = {
   },
   week(d){ S.weekOff+=d; render(); },
   filter(k,v){ S.filters[k]=v; render(); },
+  filterQ(v){
+    S.filters.q=v;
+    // re-render only the jobs list, preserving search input focus
+    const root=document.getElementById('root');
+    if(root && S.view==='jobs'){
+      const focused=document.activeElement?.id;
+      const pos=document.activeElement?.selectionStart;
+      render();
+      const el2=document.getElementById(focused);
+      if(el2){ el2.focus(); try{ el2.setSelectionRange(pos,pos); }catch{} }
+    }
+  },
+
+  // ABN helpers
+  fmtAbn(input){
+    let v=input.value.replace(/\D/g,'').slice(0,11);
+    if(v.length>2) v=v.slice(0,2)+' '+v.slice(2);
+    if(v.length>6) v=v.slice(0,6)+' '+v.slice(6);
+    if(v.length>10) v=v.slice(0,10)+' '+v.slice(10);
+    input.value=v;
+  },
+  verifyAbn(){
+    const raw=(el('ef_abn')?.value||'').replace(/\s/g,'');
+    const status=el('ef_abn_status');
+    if(!status) return;
+    if(raw.length!==11||!/^\d{11}$/.test(raw)){ status.innerHTML='<span style="color:#ef4444">ABN must be 11 digits</span>'; return; }
+    // ABN checksum validation (Australian algorithm)
+    const weights=[10,1,3,5,7,9,11,13,15,17,19];
+    const digits=raw.split('').map(Number);
+    digits[0]-=1;
+    const sum=digits.reduce((s,d,i)=>s+d*weights[i],0);
+    if(sum%89===0){
+      status.innerHTML='<span style="color:var(--green)">✓ Valid ABN format</span>';
+    } else {
+      status.innerHTML='<span style="color:#ef4444">✗ Invalid ABN — check the number</span>';
+    }
+  },
 
   openDay(y,m,d){ S.modal=dayModal(y,m,d); render(); },
 
@@ -1705,9 +1756,7 @@ const app = {
     if(!c1name)  { toast('Primary contact name is required.'); return; }
     if(!c1phone) { toast('Primary contact mobile is required.'); return; }
     if(!c1email) { toast('Primary contact email is required.'); return; }
-    if(!c2name)  { toast('Secondary contact name is required.'); return; }
-    if(!c2phone) { toast('Secondary contact mobile is required.'); return; }
-    if(!c2email) { toast('Secondary contact email is required.'); return; }
+    // secondary contact is optional
     const data={
       name, legal:el('cf_legal')?.value.trim()||'',
       address:el('cf_address')?.value.trim()||'',
@@ -1787,18 +1836,17 @@ const app = {
       empType:el('ef_emptype')?.value||'Casual',
       abn:el('ef_abn')?.value.trim()||'',
       payRate:parseFloat(el('ef_pay')?.value)||0,
-      skills:el('ef_skills')?.value.trim()||'',
+      skills:el('ef_skills')?.value||'',
       status:el('ef_status')?.value||'active',
       since:el('ef_since')?.value.trim()||'',
       passport:el('ef_passport')?.value.trim()||'',
       ecName:el('ef_ecname')?.value.trim()||'',
       ecRel:el('ef_ecrel')?.value.trim()||'',
       ecPhone:el('ef_ecphone')?.value.trim()||'',
-      pli:el('ef_pli')?.checked||false,
-      policeCheck:el('ef_police')?.checked||false,
-      whiteCard:el('ef_wcard')?.checked||false,
-      wwcCheck:el('ef_wwc')?.checked||false,
-      superIncluded:el('ef_super')?.checked||false,
+      pli:el('ef_pli')?.checked||false,       pliRef:el('ef_pli_ref')?.value.trim()||'',
+      policeCheck:el('ef_police')?.checked||false, policeRef:el('ef_police_ref')?.value.trim()||'',
+      whiteCard:el('ef_wcard')?.checked||false,    whiteCardRef:el('ef_wcard_ref')?.value.trim()||'',
+      wwcCheck:el('ef_wwc')?.checked||false,       wwcRef:el('ef_wwc_ref')?.value.trim()||'',
       notes:el('ef_notes')?.value.trim()||'',
       color: colorFor(name),
       docs:[],
@@ -1807,18 +1855,30 @@ const app = {
     else { Store.add('employees',{...data, id:uid(), passportFile:'', attachments:[]}); toast('Subcontractor created!'); }
     S.modal=null; render();
   },
-  uploadPassport(event, empId){
+  async uploadPassport(event, empId){
     const file=event.target.files[0]; if(!file) return;
-    if(empId){ Store.update('employees',empId,{passportFile:file.name}); toast('Passport recorded: '+file.name); render(); }
+    if(!empId){ toast('Save the employee first.'); return; }
+    toast('Uploading passport...');
+    try {
+      const url = await sbUpload(`employees/${empId}/passport/${file.name}`, file);
+      Store.update('employees',empId,{passportFile:file.name, passportUrl:url});
+      toast('Passport uploaded.'); render();
+    } catch(e){ console.error(e); toast('Upload failed — check Storage bucket.'); }
   },
-  uploadAttachments(event, empId){
+  async uploadAttachments(event, empId){
     if(!empId){ toast('Save the subcontractor first, then add attachments.'); return; }
     const files=[...event.target.files]; if(!files.length) return;
+    toast(`Uploading ${files.length} file(s)...`);
     const existing=getEmployee(empId);
-    const attachments=[...(existing?.attachments||[]), ...files.map(f=>f.name)];
-    Store.update('employees',empId,{attachments});
-    toast(`${files.length} attachment(s) added.`);
-    S.modal=()=>employeeFormModal(empId)(); render();
+    const current=existing?.attachments||[];
+    try {
+      const newFiles = await Promise.all(files.map(f=>
+        sbUpload(`employees/${empId}/attachments/${Date.now()}_${f.name}`, f).then(url=>({name:f.name,url}))
+      ));
+      Store.update('employees',empId,{attachments:[...current,...newFiles]});
+      toast(`${files.length} attachment(s) uploaded.`);
+      S.modal=()=>employeeFormModal(empId)(); render();
+    } catch(e){ console.error(e); toast('Upload failed — check Storage bucket.'); }
   },
   removeAttachment(empId, idx){
     const existing=getEmployee(empId); if(!existing) return;
@@ -1865,25 +1925,29 @@ const app = {
     Store.update('jobs', jobId, {[field]: value});
     S.modal=jobModalFor(jobId); render();
   },
-  onPhoto(event, type, jobId){
+  async onPhoto(event, type, jobId){
     const file=event.target.files[0]; if(!file) return;
-    const reader=new FileReader();
-    reader.onload=e=>{
+    toast('Uploading photo...');
+    try {
+      const url = await sbUpload(`jobs/${jobId}/photos/${type}_${Date.now()}_${file.name}`, file);
       const j=getJob(jobId); if(!j) return;
-      const photos=[...j.photos,{type, url:e.target.result, ts:new Date().toLocaleTimeString()}];
+      const photos=[...(j.photos||[]),{type, url, name:file.name, ts:new Date().toLocaleTimeString()}];
       Store.update('jobs',jobId,{photos});
-      toast(`${type==='before'?'Before':'After'} photo added!`);
+      toast(`${type==='before'?'Before':'After'} photo uploaded!`);
       S.modal=jobModalFor(jobId); render();
-    };
-    reader.readAsDataURL(file);
+    } catch(e){ console.error(e); toast('Photo upload failed — check Storage bucket.'); }
   },
-  onReceipt(event, jobId){
+  async onReceipt(event, jobId){
     const file=event.target.files[0]; if(!file) return;
-    const j=getJob(jobId); if(!j) return;
-    const receipts=[...(j.receipts||[]),{name:file.name, ts:new Date().toLocaleTimeString()}];
-    Store.update('jobs',jobId,{receipts});
-    toast('Receipt uploaded: '+file.name);
-    S.modal=jobModalFor(jobId); render();
+    toast('Uploading receipt...');
+    try {
+      const url = await sbUpload(`jobs/${jobId}/receipts/${Date.now()}_${file.name}`, file);
+      const j=getJob(jobId); if(!j) return;
+      const receipts=[...(j.receipts||[]),{name:file.name, url, ts:new Date().toLocaleTimeString()}];
+      Store.update('jobs',jobId,{receipts});
+      toast('Receipt uploaded: '+file.name);
+      S.modal=jobModalFor(jobId); render();
+    } catch(e){ console.error(e); toast('Receipt upload failed — check Storage bucket.'); }
   },
 
   // ── Sick leave ──
@@ -1905,11 +1969,46 @@ window.app = app;
 
 // ─── 11. INIT ────────────────────────────────────────────────────────────────
 
-document.addEventListener('DOMContentLoaded', ()=>{
+async function initApp(){
+  document.getElementById('loginScreen').style.display='none';
+  document.getElementById('appShell').style.display='none';
+  document.body.insertAdjacentHTML('beforeend',
+    '<div id="loadingScreen" style="position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#f8fafc;z-index:999;gap:16px">' +
+    '<div style="font-size:28px;font-weight:800;color:#0d9488">CleanCops</div>' +
+    '<div style="font-size:13px;color:#64748b">Loading data...</div>' +
+    '<div style="width:40px;height:4px;background:#e2e8f0;border-radius:4px;overflow:hidden"><div style="width:40%;height:100%;background:#0d9488;animation:ldpulse 1s infinite alternate"></div></div>' +
+    '</div>' +
+    '<style>@keyframes ldpulse{from{transform:translateX(0)}to{transform:translateX(150%)}}</style>'
+  );
+
+  // Load all tables from Supabase
+  const TABLES = ['clients','sites','employees','shifts','jobs','empinvoices'];
+  try {
+    await Promise.all(TABLES.map(async t=>{
+      const {data, error} = await _sb.from(t).select('*');
+      if(error) console.error('load',t,error);
+      else db[t] = data || [];
+    }));
+  } catch(e){
+    console.error('Supabase load error:', e);
+  }
+
   loadDB();
+  document.getElementById('loadingScreen')?.remove();
   render();
 
   document.querySelectorAll('#roleSeg button').forEach(b=>{
     b.addEventListener('click', ()=>app.setRole(b.dataset.role));
   });
-});
+
+  // Real-time sync via Supabase channels
+  TABLES.forEach(t=>{
+    _sb.channel(t)
+      .on('postgres_changes', {event:'*', schema:'public', table:t}, ()=>{
+        _sb.from(t).select('*').then(({data})=>{ if(data){ db[t]=data; render(); } });
+      })
+      .subscribe();
+  });
+}
+
+document.addEventListener('DOMContentLoaded', initApp);
